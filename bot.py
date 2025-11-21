@@ -1,16 +1,25 @@
 import os
 import time
 import requests
+from pathlib import Path
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 
 # -------------------- ЗАГРУЗКА .env --------------------
 
-load_dotenv()
+BASE_DIR = Path(__file__).resolve().parent
+ENV_PATH = BASE_DIR / ".env"
 
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-COC_API_TOKEN = os.getenv("COC_API_TOKEN")
-CLAN_TAG = os.getenv("CLAN_TAG")
+if not load_dotenv(ENV_PATH):
+    print(f"⚠️ Файл .env не найден по пути {ENV_PATH}. Читаю только системные переменные.")
+
+def _env(name):
+    value = os.getenv(name)
+    return value.strip() if value else None
+
+TELEGRAM_BOT_TOKEN = _env("TELEGRAM_BOT_TOKEN")
+COC_API_TOKEN = _env("COC_API_TOKEN")
+CLAN_TAG = _env("CLAN_TAG")
 
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("ERROR: TELEGRAM_BOT_TOKEN не найден в .env")
@@ -22,10 +31,11 @@ if not CLAN_TAG:
     print("⚠️ CLAN_TAG не найден — команды войны работать не будут.")
 
 BASE_TELEGRAM_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
-COC_URL = f"https://api.clashofclans.com/v1/clans/{CLAN_TAG}/currentwar"
+CLAN_TAG_ENCODED = requests.utils.quote(CLAN_TAG) if CLAN_TAG else ""
+COC_URL = f"https://api.clashofclans.com/v1/clans/{CLAN_TAG_ENCODED}/currentwar" if CLAN_TAG_ENCODED else ""
 PLAYER_URL = "https://api.clashofclans.com/v1/players/"
 
-COC_HEADERS = {"Authorization": f"Bearer {COC_API_TOKEN}"}
+COC_HEADERS = {"Authorization": f"Bearer {COC_API_TOKEN}"} if COC_API_TOKEN else {}
 
 # -------------------- ЛОКАЛЬНАЯ БД (в одном файле) --------------------
 
@@ -89,6 +99,8 @@ def get_updates(offset=None):
 # -------------------- Clash of Clans API --------------------
 
 def get_war():
+    if not COC_API_TOKEN or not COC_URL:
+        return None
     try:
         r = requests.get(COC_URL, headers=COC_HEADERS, timeout=10)
         if r.status_code != 200:
@@ -98,6 +110,8 @@ def get_war():
         return None
 
 def get_player(tag):
+    if not COC_API_TOKEN:
+        return None
     url = PLAYER_URL + requests.utils.quote(tag)
     try:
         r = requests.get(url, headers=COC_HEADERS, timeout=10)
