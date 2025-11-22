@@ -1,9 +1,11 @@
 import os
 import time
 import requests
+import json
 from pathlib import Path
 from datetime import datetime, timezone
 from dotenv import load_dotenv
+import threading
 
 # -------------------- ЗАГРУЗКА .env --------------------
 
@@ -20,6 +22,7 @@ def _env(name):
 TELEGRAM_BOT_TOKEN = _env("TELEGRAM_BOT_TOKEN")
 COC_API_TOKEN = _env("COC_API_TOKEN")
 CLAN_TAG = _env("CLAN_TAG")
+GROUP_CHAT_ID = _env("GROUP_CHAT_ID")
 
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("ERROR: TELEGRAM_BOT_TOKEN не найден в .env")
@@ -31,6 +34,8 @@ if not CLAN_TAG:
     print("⚠️ CLAN_TAG не найден — команды войны работать не будут.")
 
 BASE_TELEGRAM_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
+if GROUP_CHAT_ID:
+    GROUP_CHAT_ID = int(GROUP_CHAT_ID)
 CLAN_TAG_ENCODED = requests.utils.quote(CLAN_TAG) if CLAN_TAG else ""
 COC_URL = f"https://api.clashofclans.com/v1/clans/{CLAN_TAG_ENCODED}/currentwar" if CLAN_TAG_ENCODED else ""
 PLAYER_URL = "https://api.clashofclans.com/v1/players/"
@@ -46,8 +51,16 @@ def db_init():
     conn = sqlite3.connect(DB_PATH)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS links (
-            telegram_id TEXT PRIMARY KEY,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            telegram_id TEXT NOT NULL,
             coc_tag TEXT NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS subs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            telegram_id TEXT NOT NULL,
+            sub_type TEXT NOT NULL
         )
     """)
     conn.commit()
@@ -59,8 +72,6 @@ def db_save_link(telegram_id, coc_tag):
     conn.execute("""
         INSERT INTO links (telegram_id, coc_tag)
         VALUES (?, ?)
-        ON CONFLICT(telegram_id)
-        DO UPDATE SET coc_tag = excluded.coc_tag
     """, (str(telegram_id), coc_tag))
     conn.commit()
     conn.close()
@@ -69,11 +80,334 @@ def db_get_link(telegram_id):
     import sqlite3
     conn = sqlite3.connect(DB_PATH)
     cur = conn.execute("SELECT coc_tag FROM links WHERE telegram_id=?", (str(telegram_id),))
-    row = cur.fetchone()
+    rows = cur.fetchall()
     conn.close()
-    return row[0] if row else None
+    return [r[0] for r in rows] if rows else []
+
+def db_get_all_links_for_user(telegram_id):
+    import sqlite3
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.execute("SELECT coc_tag FROM links WHERE telegram_id=?", (str(telegram_id),))
+    rows = cur.fetchall()
+    conn.close()
+    return [r[0] for r in rows] if rows else []
+
+# -------------------- SUBSCRIPTION HELPERS --------------------
+def db_add_sub(telegram_id, sub_type):
+    import sqlite3
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("INSERT INTO subs (telegram_id, sub_type) VALUES (?, ?)", (str(telegram_id), sub_type))
+    conn.commit()
+    conn.close()
+
+def db_get_subs():
+    import sqlite3
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.execute("SELECT telegram_id, sub_type FROM subs")
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
+# -------------------- SUBSCRIPTION CLEAR HELPER --------------------
+def db_clear_subs_for_user(telegram_id):
+    import sqlite3
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("DELETE FROM subs WHERE telegram_id=?", (str(telegram_id),))
+    conn.commit()
+    conn.close()
 
 # -------------------- УТИЛИТЫ --------------------
+
+def send_keyboard(chat_id):
+    keyboard = {
+        "keyboard": [
+            [ {"text": "📁 Война"} ],
+            [ {"text": "📁 ЛВК"} ],
+            [ {"text": "📁 Аккаунты"} ],
+            [ {"text": "📁 Подписки"} ]
+        ],
+        "resize_keyboard": True
+    }
+    try:
+        requests.post(
+            BASE_TELEGRAM_URL + "/sendMessage",
+            data={
+                "chat_id": chat_id,
+                "text": "Главное меню:",
+                "reply_markup": json.dumps(keyboard)
+            },
+            timeout=5,
+        )
+    except:
+        pass
+
+
+# -------------------- INLINE MENUS --------------------
+
+def send_main_menu_inline(chat_id, message_id=None):
+    keyboard = {
+        "inline_keyboard": [
+            [ {"text": "📁 Война", "callback_data": "menu_war"} ],
+            [ {"text": "📁 ЛВК", "callback_data": "menu_lwk"} ],
+            [ {"text": "📁 Аккаунты", "callback_data": "menu_accounts"} ],
+            [ {"text": "📁 Подписки", "callback_data": "menu_subs"} ],
+        ]
+    }
+    payload = {
+        "chat_id": chat_id,
+        "text": "Главное меню:",
+        "reply_markup": json.dumps(keyboard),
+    }
+    try:
+        if message_id:
+            payload["message_id"] = message_id
+            requests.post(
+                BASE_TELEGRAM_URL + "/editMessageText",
+                data=payload,
+                timeout=5,
+            )
+        else:
+            requests.post(
+                BASE_TELEGRAM_URL + "/sendMessage",
+                data=payload,
+                timeout=5,
+            )
+    except:
+        pass
+
+
+def send_war_menu_inline(chat_id, message_id=None):
+    keyboard = {
+        "inline_keyboard": [
+            [ {"text": "📊 Статус войны", "callback_data": "war_status"} ],
+            [ {"text": "⏳ До конца", "callback_data": "war_left"}, {"text": "❗ Кто не бил", "callback_data": "war_missed"} ],
+            [ {"text": "⚔ Мои атаки", "callback_data": "war_myattacks"} ],
+            [ {"text": "📈 Текущая война", "callback_data": "war_current"} ],
+            [ {"text": "🔙 Назад", "callback_data": "back_main"} ],
+        ]
+    }
+    payload = {
+        "chat_id": chat_id,
+        "text": "Раздел: Война",
+        "reply_markup": json.dumps(keyboard),
+    }
+    try:
+        if message_id:
+            payload["message_id"] = message_id
+            requests.post(
+                BASE_TELEGRAM_URL + "/editMessageText",
+                data=payload,
+                timeout=5,
+            )
+        else:
+            requests.post(
+                BASE_TELEGRAM_URL + "/sendMessage",
+                data=payload,
+                timeout=5,
+            )
+    except:
+        pass
+
+
+def send_lwk_menu_inline(chat_id, message_id=None):
+    keyboard = {
+        "inline_keyboard": [
+            [ {"text": "📊 Статус ЛВК", "callback_data": "lwk_status"} ],
+            [ {"text": "⏳ До конца ЛВК", "callback_data": "lwk_end"}, {"text": "❗ Кто не бил ЛВК", "callback_data": "lwk_missed"} ],
+            [ {"text": "🔥 Прогресс ЛВК", "callback_data": "lwk_progress"}, {"text": "⭐ Сравнение звёзд", "callback_data": "lwk_compare"} ],
+            [ {"text": "📋 Раунды ЛВК", "callback_data": "lwk_rounds"}, {"text": "📈 Таблица ЛВК", "callback_data": "lwk_table"} ],
+            [ {"text": "⚔ Мои атаки ЛВК", "callback_data": "lwk_myattacks"} ],
+            [ {"text": "🔙 Назад", "callback_data": "back_main"} ],
+        ]
+    }
+    payload = {
+        "chat_id": chat_id,
+        "text": "Раздел: Лига Воин Кланов (ЛВК)",
+        "reply_markup": json.dumps(keyboard),
+    }
+    try:
+        if message_id:
+            payload["message_id"] = message_id
+            requests.post(
+                BASE_TELEGRAM_URL + "/editMessageText",
+                data=payload,
+                timeout=5,
+            )
+        else:
+            requests.post(
+                BASE_TELEGRAM_URL + "/sendMessage",
+                data=payload,
+                timeout=5,
+            )
+    except:
+        pass
+
+
+def send_accounts_menu_inline(chat_id, message_id=None):
+    keyboard = {
+        "inline_keyboard": [
+            [ {"text": "👤 Мои аккаунты", "callback_data": "acc_mine"} ],
+            [ {"text": "➕ Добавить аккаунт", "callback_data": "acc_add"} ],
+            [ {"text": "🔙 Назад", "callback_data": "back_main"} ],
+        ]
+    }
+    payload = {
+        "chat_id": chat_id,
+        "text": "Раздел: Аккаунты",
+        "reply_markup": json.dumps(keyboard),
+    }
+    try:
+        if message_id:
+            payload["message_id"] = message_id
+            requests.post(
+                BASE_TELEGRAM_URL + "/editMessageText",
+                data=payload,
+                timeout=5,
+            )
+        else:
+            requests.post(
+                BASE_TELEGRAM_URL + "/sendMessage",
+                data=payload,
+                timeout=5,
+            )
+    except:
+        pass
+
+
+def send_subscriptions_menu_inline(chat_id, message_id=None):
+    keyboard = {
+        "inline_keyboard": [
+            [ {"text": "🔔 Напомнить о начале войны", "callback_data": "sub_war_start"} ],
+            [ {"text": "⏳ За 3 часа (обычная война)", "callback_data": "sub_war_3h"} ],
+            [ {"text": "⏳ За 3 часа (ЛВК)", "callback_data": "sub_lwk_3h"} ],
+            [ {"text": "🔕 Выключить подписки", "callback_data": "sub_disable"} ],
+            [ {"text": "🔙 Назад", "callback_data": "back_main"} ],
+        ]
+    }
+    payload = {
+        "chat_id": chat_id,
+        "text": "Раздел: Подписки",
+        "reply_markup": json.dumps(keyboard),
+    }
+    try:
+        if message_id:
+            payload["message_id"] = message_id
+            requests.post(
+                BASE_TELEGRAM_URL + "/editMessageText",
+                data=payload,
+                timeout=5,
+            )
+        else:
+            requests.post(
+                BASE_TELEGRAM_URL + "/sendMessage",
+                data=payload,
+                timeout=5,
+            )
+    except:
+        pass
+
+
+# -------------------- SUBMENU KEYBOARDS --------------------
+
+def send_war_menu(chat_id):
+    keyboard = {
+        "keyboard": [
+            [ {"text": "📊 Статус войны"} ],
+            [ {"text": "⏳ До конца"}, {"text": "❗ Кто не бил"} ],
+            [ {"text": "⚔ Мои атаки"} ],
+            [ {"text": "📈 Текущая война"} ],
+            [ {"text": "🔙 Назад"} ]
+        ],
+        "resize_keyboard": True
+    }
+    try:
+        requests.post(
+            BASE_TELEGRAM_URL + "/sendMessage",
+            data={
+                "chat_id": chat_id,
+                "text": "Раздел: Война",
+                "reply_markup": json.dumps(keyboard)
+            },
+            timeout=5,
+        )
+    except:
+        pass
+
+
+def send_accounts_menu(chat_id):
+    keyboard = {
+        "keyboard": [
+            [ {"text": "👤 Мои аккаунты"} ],
+            [ {"text": "➕ Добавить аккаунт"} ],
+            [ {"text": "🔙 Назад"} ]
+        ],
+        "resize_keyboard": True
+    }
+    try:
+        requests.post(
+            BASE_TELEGRAM_URL + "/sendMessage",
+            data={
+                "chat_id": chat_id,
+                "text": "Раздел: Аккаунты",
+                "reply_markup": json.dumps(keyboard)
+            },
+            timeout=5,
+        )
+    except:
+        pass
+
+
+# -------------------- ЛВК МЕНЮ --------------------
+
+def send_lwk_menu(chat_id):
+    keyboard = {
+        "keyboard": [
+            [ {"text": "📊 Статус ЛВК"} ],
+            [ {"text": "⏳ До конца ЛВК"}, {"text": "❗ Кто не бил ЛВК"} ],
+            [ {"text": "🔥 Прогресс ЛВК"}, {"text": "⭐ Сравнение звёзд"} ],
+            [ {"text": "📋 Раунды ЛВК"}, {"text": "📈 Таблица ЛВК"} ],
+            [ {"text": "⚔ Мои атаки ЛВК"} ],
+            [ {"text": "🔙 Назад"} ]
+        ],
+        "resize_keyboard": True
+    }
+    try:
+        requests.post(
+            BASE_TELEGRAM_URL + "/sendMessage",
+            data={
+                "chat_id": chat_id,
+                "text": "Раздел: Лига Воин Кланов (ЛВК)",
+                "reply_markup": json.dumps(keyboard)
+            },
+            timeout=5,
+        )
+    except:
+        pass
+
+# -------------------- SUBSCRIPTIONS MENU --------------------
+def send_subscriptions_menu(chat_id):
+    keyboard = {
+        "keyboard": [
+            [ {"text": "🔔 Напомнить о начале войны"} ],
+            [ {"text": "⏳ Напомнить за 3 часа (обычная война)"} ],
+            [ {"text": "⏳ Напомнить за 3 часа (ЛВК)"} ],
+            [ {"text": "🔕 Выключить подписки"} ],
+            [ {"text": "🔙 Назад"} ]
+        ],
+        "resize_keyboard": True
+    }
+    try:
+        requests.post(
+            BASE_TELEGRAM_URL + "/sendMessage",
+            data={
+                "chat_id": chat_id,
+                "text": "Раздел: Подписки",
+                "reply_markup": json.dumps(keyboard)
+            },
+            timeout=5,
+        )
+    except:
+        pass
 
 def send_message(chat_id, text):
     try:
@@ -139,21 +473,58 @@ def format_diff(dt):
     minutes = (diff.seconds % 3600) // 60
     return f"{hours}ч {minutes}м"
 
+# -------------------- Clash of Clans API: ЛВК --------------------
+
+def get_lwk_group():
+    """Получает список раундов ЛВК и warTag для каждой войны."""
+    if not COC_API_TOKEN or not COC_URL:
+        return None
+    try:
+        url = f"https://api.clashofclans.com/v1/clans/{CLAN_TAG_ENCODED}/currentwar/leaguegroup"
+        r = requests.get(url, headers=COC_HEADERS, timeout=10)
+        if r.status_code != 200:
+            return None
+        return r.json()
+    except:
+        return None
+
+def get_lwk_war(war_tag):
+    """Получает данные одной ЛВК-войны по warTag."""
+    try:
+        war_tag_encoded = requests.utils.quote(war_tag)
+        url = f"https://api.clashofclans.com/v1/clanwarleagues/wars/{war_tag_encoded}"
+        r = requests.get(url, headers=COC_HEADERS, timeout=10)
+        if r.status_code != 200:
+            return None
+        return r.json()
+    except:
+        return None
+
+def get_current_lwk_war():
+    """Возвращает текущую ЛВК-войну (state == 'inWar')."""
+    group = get_lwk_group()
+    if not group or "rounds" not in group:
+        return None
+
+    for rnd in group["rounds"]:
+        for war_tag in rnd.get("warTags", []):
+            if war_tag == "#0":  # пустой слот
+                continue
+            w = get_lwk_war(war_tag)
+            if not w:
+                continue
+            if w.get("state") == "inWar":
+                return w
+    return None
+
 # -------------------- КОМАНДЫ --------------------
 
 def cmd_start(chat_id):
     send_message(chat_id,
-        "👋 Привет! Я бот клана Clash of Clans.\n\n"
-        "Команды:\n"
-        "/warstatus — статус войны\n"
-        "/warstart — время до начала\n"
-        "/warend — время до конца\n"
-        "/warleft — сколько атак осталось\n"
-        "/missed — кто не бил\n"
-        "/link #TAG — привязать Clash профиль\n"
-        "/mytag — показать привязанный тег\n"
-        "/myattacks — показать твои атаки\n"
+        "👋 Привет! Клан *Legion*.\n\n"
+        "Выберите действие ниже:"
     )
+    send_main_menu_inline(chat_id)
 
 def cmd_warstatus(chat_id):
     w = get_war()
@@ -203,6 +574,28 @@ def cmd_warleft(chat_id):
     left = total - attacks
     send_message(chat_id, f"⚔ Осталось атак: {left}\nВыполнено: {attacks}/{total}")
 
+
+# -------------------- ТЕКУЩАЯ ВОЙНА --------------------
+def cmd_war_current(chat_id):
+    w = get_war()
+    if not w or w.get("state") not in ("inWar", "warEnded", "preparation"):
+        send_message(chat_id, "Не удалось получить данные о текущей войне.")
+        return
+    clan = w.get("clan", {})
+    opp = w.get("opponent", {})
+    clan_name = clan.get("name", "Наш клан")
+    opp_name = opp.get("name", "Клан врага")
+    clan_stars = clan.get("stars", 0)
+    opp_stars = opp.get("stars", 0)
+    clan_atk = clan.get("attacks", 0)
+    opp_atk = opp.get("attacks", 0)
+    msg = (
+        f"{clan_name} — {opp_name}\n"
+        f"{clan_stars}⭐ — {opp_stars}⭐\n"
+        f"{clan_atk} атак — {opp_atk} атак"
+    )
+    send_message(chat_id, msg)
+
 def cmd_missed(chat_id):
     w = get_war()
     if not w or w["state"] != "inWar":
@@ -228,41 +621,287 @@ def cmd_link(chat_id, user_id, text):
         send_message(chat_id, "Тег должен начинаться с #")
         return
     db_save_link(user_id, tag)
-    send_message(chat_id, f"🔗 Тег {tag} привязан к вашему профилю.")
+    player = get_player(tag)
+    player_name = player.get("name", tag) if player else tag
+    send_message(chat_id, f"🔗 Аккаунт {player_name} добавлен.")
 
 def cmd_mytag(chat_id, user_id):
-    tag = db_get_link(user_id)
-    if not tag:
-        send_message(chat_id, "У вас нет привязанного профиля. Используйте /link #TAG")
-    else:
-        send_message(chat_id, f"Ваш тег: *{tag}*")
+    tags = db_get_all_links_for_user(user_id)
+    if not tags:
+        send_message(chat_id, "У вас нет привязанных профилей. Используйте /link #TAG")
+        return
+    msg = "Ваши аккаунты:\n\n"
+    for t in tags:
+        p = get_player(t)
+        name = p.get("name", t) if p else t
+        msg += f"• {name} — {t}\n"
+    send_message(chat_id, msg)
 
 def cmd_myattacks(chat_id, user_id):
-    tag = db_get_link(user_id)
-    if not tag:
-        send_message(chat_id, "Сначала привяжите тег через /link #TAG")
+    tags = db_get_all_links_for_user(user_id)
+    if not tags:
+        send_message(chat_id, "Сначала привяжите аккаунт через /link #TAG")
         return
     w = get_war()
     if not w or w["state"] != "inWar":
-        send_message(chat_id, "Нет текущей войны.")
+        send_message(chat_id, "Сейчас нет войны.")
         return
     members = w["clan"]["members"]
-    me = next((m for m in members if m["tag"] == tag), None)
-    if not me:
-        send_message(chat_id, "Вы не участвуете в этой войне.")
-        return
-    if not me.get("attacks"):
-        send_message(chat_id, "Вы ещё не атаковали.")
-        return
     msg = "Ваши атаки:\n\n"
-    for atk in me["attacks"]:
-        msg += f"⭐ {atk['stars']} — {atk['destructionPercentage']}%\n"
+    found_any = False
+    for tag in tags:
+        me = next((m for m in members if m["tag"] == tag), None)
+        if not me:
+            continue
+        found_any = True
+        pname = me["name"]
+        if not me.get("attacks"):
+            msg += f"• {pname}: нет атак\n"
+        else:
+            msg += f"• {pname}:\n"
+            for atk in me["attacks"]:
+                msg += f"    ⭐ {atk['stars']} — {atk['destructionPercentage']}%\n"
+    if not found_any:
+        msg = "Ни один из ваших аккаунтов не участвует в этой войне."
     send_message(chat_id, msg)
 
 # -------------------- ОБРАБОТКА --------------------
 
+def cmd_lwk_status(chat_id):
+    w = get_current_lwk_war()
+    if not w:
+        send_message(chat_id, "ЛВК-война сейчас не идёт.")
+        return
+    state = w.get("state", "?")
+    msg = f"📌 Статус ЛВК: *{state}*\n\n"
+    if "endTime" in w:
+        end = parse_time(w["endTime"])
+        msg += f"До конца: {format_diff(end)}\n"
+    send_message(chat_id, msg)
+
+def cmd_lwk_end(chat_id):
+    w = get_current_lwk_war()
+    if not w:
+        send_message(chat_id, "ЛВК-война сейчас не идёт.")
+        return
+    dt = parse_time(w["endTime"])
+    send_message(chat_id, f"⏳ До конца ЛВК: {format_diff(dt)}")
+
+def cmd_lwk_missed(chat_id):
+    w = get_current_lwk_war()
+    if not w or w.get("state") != "inWar":
+        send_message(chat_id, "ЛВК-война сейчас не идёт.")
+        return
+    msg = "❗ Не сделали атаку в ЛВК:\n\n"
+    missed = []
+    for m in w["clan"]["members"]:
+        if not m.get("attacks"):
+            missed.append(f"{m['name']} — {m['tag']}")
+    if not missed:
+        send_message(chat_id, "🎉 Все сделали атаки в ЛВК!")
+    else:
+        send_message(chat_id, msg + "\n".join(missed))
+
+def cmd_lwk_myattacks(chat_id, user_id):
+    tags = db_get_all_links_for_user(user_id)
+    if not tags:
+        send_message(chat_id, "Привяжите аккаунт через /link #TAG")
+        return
+    w = get_current_lwk_war()
+    if not w or w.get("state") != "inWar":
+        send_message(chat_id, "ЛВК-война сейчас не идёт.")
+        return
+    msg = "Ваши атаки в ЛВК:\n\n"
+    found = False
+    for t in tags:
+        me = next((m for m in w["clan"]["members"] if m["tag"] == t), None)
+        if not me:
+            continue
+        found = True
+        pname = me["name"]
+        if not me.get("attacks"):
+            msg += f"• {pname}: нет атак\n"
+        else:
+            msg += f"• {pname}:\n"
+            for atk in me["attacks"]:
+                msg += f"    ⭐ {atk['stars']} — {atk['destructionPercentage']}%\n"
+    if not found:
+        msg = "Ни один из ваших аккаунтов не участвует в текущей ЛВК-войне."
+    send_message(chat_id, msg)
+
+# -------------------- NEW LWK COMMANDS --------------------
+
+def cmd_lwk_progress(chat_id):
+    w = get_current_lwk_war()
+    if not w or w.get("state") != "inWar":
+        send_message(chat_id, "ЛВК-война сейчас не идёт.")
+        return
+    clan = w.get("clan", {})
+    size = w.get("teamSize", 0)
+    max_attacks = size * 2
+    done = clan.get("attacks", 0)
+    left = max_attacks - done
+    msg = (
+        "🔥 Прогресс ЛВК:\n\n"
+        f"Выполнено атак: {done}/{max_attacks}\n"
+        f"Осталось: {left}\n"
+        f"Звёзды: {clan.get('stars', 0)}\n"
+        f"Процент разрушения: {clan.get('destructionPercentage', 0)}%\n"
+    )
+    send_message(chat_id, msg)
+
+def cmd_lwk_compare(chat_id):
+    w = get_current_lwk_war()
+    if not w:
+        send_message(chat_id, "ЛВК-война сейчас не идёт.")
+        return
+    clan = w.get("clan", {})
+    opp = w.get("opponent", {})
+    msg = (
+        "⭐ Сравнение звёзд:\n\n"
+        f"{clan.get('name', 'Наш клан')} — {clan.get('stars', 0)}⭐\n"
+        f"{opp.get('name', 'Противник')} — {opp.get('stars', 0)}⭐\n\n"
+        "💥 Разница: " +
+        str(clan.get('stars', 0) - opp.get('stars', 0))
+    )
+    send_message(chat_id, msg)
+
+def cmd_lwk_rounds(chat_id):
+    group = get_lwk_group()
+    if not group or "rounds" not in group:
+        send_message(chat_id, "Не удалось получить раунды ЛВК.")
+        return
+    msg = "📋 Раунды ЛВК:\n\n"
+    for i, rnd in enumerate(group["rounds"], start=1):
+        msg += f"Раунд {i}:\n"
+        for tag in rnd.get("warTags", []):
+            msg += f" • {tag}\n"
+        msg += "\n"
+    send_message(chat_id, msg)
+
+def cmd_lwk_table(chat_id):
+    w = get_current_lwk_war()
+    if not w:
+        send_message(chat_id, "ЛВК-война сейчас не идёт.")
+        return
+    clan = w.get("clan", {})
+    opp = w.get("opponent", {})
+    msg = (
+        "📈 Таблица ЛВК:\n\n"
+        f"{clan.get('name', 'Наш клан')}:\n"
+        f" ⭐ {clan.get('stars', 0)}\n"
+        f" 🔨 {clan.get('destructionPercentage', 0)}%\n\n"
+        f"{opp.get('name', 'Противник')}:\n"
+        f" ⭐ {opp.get('stars', 0)}\n"
+        f" 🔨 {opp.get('destructionPercentage', 0)}%\n"
+    )
+    send_message(chat_id, msg)
+
+
+# -------------------- INLINE CALLBACK HANDLER --------------------
+
+def handle_callback(cq):
+    message = cq.get("message")
+    if not message:
+        return
+    chat_id = message["chat"]["id"]
+    message_id = message["message_id"]
+    data = cq.get("data")
+    user = cq.get("from", {})
+    user_id = user.get("id")
+
+    print(f"[CALLBACK] chat={chat_id} data={data}")
+
+    # Меню навигации
+    if data == "menu_war":
+        send_war_menu_inline(chat_id, message_id)
+    elif data == "menu_lwk":
+        send_lwk_menu_inline(chat_id, message_id)
+    elif data == "menu_accounts":
+        send_accounts_menu_inline(chat_id, message_id)
+    elif data == "menu_subs":
+        send_subscriptions_menu_inline(chat_id, message_id)
+    elif data == "back_main":
+        send_main_menu_inline(chat_id, message_id)
+
+    # Обычная война
+    elif data == "war_status":
+        cmd_warstatus(chat_id)
+    elif data == "war_left":
+        cmd_warleft(chat_id)
+    elif data == "war_missed":
+        cmd_missed(chat_id)
+    elif data == "war_myattacks":
+        if user_id:
+            cmd_myattacks(chat_id, user_id)
+    elif data == "war_current":
+        cmd_war_current(chat_id)
+
+    # ЛВК
+    elif data == "lwk_status":
+        cmd_lwk_status(chat_id)
+    elif data == "lwk_end":
+        cmd_lwk_end(chat_id)
+    elif data == "lwk_missed":
+        cmd_lwk_missed(chat_id)
+    elif data == "lwk_progress":
+        cmd_lwk_progress(chat_id)
+    elif data == "lwk_compare":
+        cmd_lwk_compare(chat_id)
+    elif data == "lwk_rounds":
+        cmd_lwk_rounds(chat_id)
+    elif data == "lwk_table":
+        cmd_lwk_table(chat_id)
+    elif data == "lwk_myattacks":
+        if user_id:
+            cmd_lwk_myattacks(chat_id, user_id)
+
+    # Аккаунты
+    elif data == "acc_mine":
+        if user_id:
+            cmd_mytag(chat_id, user_id)
+    elif data == "acc_add":
+        send_message(chat_id, "Введите команду в формате: /link #TAG")
+
+    # Подписки
+    elif data == "sub_war_start":
+        if user_id:
+            db_add_sub(user_id, "war_start")
+            send_message(chat_id, "Подписка добавлена: уведомить о начале войны.")
+    elif data == "sub_war_3h":
+        if user_id:
+            db_add_sub(user_id, "war_3h")
+            send_message(chat_id, "Подписка добавлена: уведомить за 3 часа до конца обычной войны.")
+    elif data == "sub_lwk_3h":
+        if user_id:
+            db_add_sub(user_id, "lwk_3h")
+            send_message(chat_id, "Подписка добавлена: уведомить за 3 часа до конца ЛВК.")
+    elif data == "sub_disable":
+        if user_id:
+            db_clear_subs_for_user(user_id)
+            send_message(chat_id, "🔕 Все ваши подписки отключены.")
+
+
 def handle_update(update):
+    # Обработка callback-кнопок
+    cq = update.get("callback_query")
+    if cq:
+        handle_callback(cq)
+        return
     msg = update.get("message") or update.get("edited_message")
+    # --- FILTER GROUP CHAT NOISE ---
+    chat = msg.get("chat", {})
+    chat_type = chat.get("type")
+
+    # react only if command or bot mention
+    text_raw = msg.get("text", "") or ""
+    bot_username = os.getenv("BOT_USERNAME", "").lower()
+
+    if chat_type in ("group", "supergroup"):
+        lower = text_raw.lower()
+        # react ONLY to slash commands in group chats
+        if not lower.startswith("/"):
+            return
     if not msg:
         return
     chat_id = msg["chat"]["id"]
@@ -273,6 +912,58 @@ def handle_update(update):
 
     if text == "/start":
         cmd_start(chat_id)
+    elif text == "📁 Война":
+        send_war_menu(chat_id)
+    elif text == "📁 ЛВК":
+        send_lwk_menu(chat_id)
+    elif text == "📊 Статус ЛВК":
+        cmd_lwk_status(chat_id)
+    elif text == "⏳ До конца ЛВК":
+        cmd_lwk_end(chat_id)
+    elif text == "❗ Кто не бил ЛВК":
+        cmd_lwk_missed(chat_id)
+    elif text == "⚔ Мои атаки ЛВК":
+        cmd_lwk_myattacks(chat_id, user_id)
+    elif text == "🔥 Прогресс ЛВК":
+        cmd_lwk_progress(chat_id)
+    elif text == "⭐ Сравнение звёзд":
+        cmd_lwk_compare(chat_id)
+    elif text == "📋 Раунды ЛВК":
+        cmd_lwk_rounds(chat_id)
+    elif text == "📈 Таблица ЛВК":
+        cmd_lwk_table(chat_id)
+    elif text == "📁 Аккаунты":
+        send_accounts_menu(chat_id)
+    elif text == "📁 Подписки":
+        send_subscriptions_menu(chat_id)
+    elif text == "🔔 Напомнить о начале войны":
+        db_add_sub(user_id, "war_start")
+        send_message(chat_id, "Подписка добавлена: уведомить о начале войны.")
+    elif text == "⏳ Напомнить за 3 часа (обычная война)":
+        db_add_sub(user_id, "war_3h")
+        send_message(chat_id, "Подписка добавлена: уведомить за 3 часа до конца обычной войны.")
+    elif text == "⏳ Напомнить за 3 часа (ЛВК)":
+        db_add_sub(user_id, "lwk_3h")
+        send_message(chat_id, "Подписка добавлена: уведомить за 3 часа до конца ЛВК.")
+    elif text == "🔕 Выключить подписки":
+        db_clear_subs_for_user(user_id)
+        send_message(chat_id, "🔕 Все ваши подписки отключены.")
+    elif text == "🔙 Назад":
+        send_keyboard(chat_id)
+    elif text == "📊 Статус войны":
+        cmd_warstatus(chat_id)
+    elif text == "⏳ До конца":
+        cmd_warleft(chat_id)
+    elif text == "👤 Мои аккаунты":
+        cmd_mytag(chat_id, user_id)
+    elif text == "⚔ Мои атаки":
+        cmd_myattacks(chat_id, user_id)
+    elif text == "📈 Текущая война":
+        cmd_war_current(chat_id)
+    elif text == "❗ Кто не бил":
+        cmd_missed(chat_id)
+    elif text == "➕ Добавить аккаунт":
+        send_message(chat_id, "Введите команду в формате: /link #TAG")
     elif text == "/warstatus":
         cmd_warstatus(chat_id)
     elif text == "/warstart":
@@ -281,6 +972,8 @@ def handle_update(update):
         cmd_warend(chat_id)
     elif text == "/warleft":
         cmd_warleft(chat_id)
+    elif text == "/warcurrent":
+        cmd_war_current(chat_id)
     elif text == "/missed":
         cmd_missed(chat_id)
     elif text.startswith("/link"):
@@ -292,11 +985,97 @@ def handle_update(update):
     else:
         send_message(chat_id, "Не знаю такую команду. Используйте /start")
 
+
+# -------------------- BACKGROUND NOTIFIER --------------------
+
+notified_lwk = False
+
+def background_notifier():
+    global notified_lwk
+    while True:
+        try:
+            w = get_current_lwk_war()
+            if w and w.get("state") == "inWar":
+                end = parse_time(w.get("endTime"))
+                if end:
+                    now = datetime.now(timezone.utc)
+                    diff_hours = (end - now).total_seconds() / 3600
+
+                    # Notify once at 3h remaining
+                    if diff_hours <= 3 and not notified_lwk and diff_hours > 0:
+                        notified_lwk = True
+
+                        # Build missed list
+                        missed = []
+                        for m in w["clan"]["members"]:
+                            if not m.get("attacks"):
+                                missed.append(f"{m['name']} — {m['tag']}")
+
+                        message = "⏳ *До конца ЛВК осталось 3 часа!*\n\n"
+                        if missed:
+                            message += "❗ Не били:\n" + "\n".join(missed)
+                        else:
+                            message += "🎉 Все уже атаковали!"
+
+                        # Broadcast to all linked users
+                        import sqlite3
+                        conn = sqlite3.connect(DB_PATH)
+                        cur = conn.execute("SELECT DISTINCT telegram_id FROM links")
+                        rows = cur.fetchall()
+                        conn.close()
+
+                        for row in rows:
+                            chat_id = row[0]
+                            send_message(chat_id, message)
+
+                        # Send to group chat if configured
+                        if GROUP_CHAT_ID:
+                            send_message(GROUP_CHAT_ID, message)
+
+                    # Reset flag for next war
+                    if diff_hours > 3:
+                        notified_lwk = False
+
+            # Ordinary war 3h reminder
+            w2 = get_war()
+            if w2 and w2.get("state") == "inWar":
+                end2 = parse_time(w2.get("endTime"))
+                if end2:
+                    now2 = datetime.now(timezone.utc)
+                    diff_hours2 = (end2 - now2).total_seconds() / 3600
+                    if diff_hours2 <= 3 and diff_hours2 > 0:
+                        subs = db_get_subs()
+                        for uid, st in subs:
+                            if st == "war_3h":
+                                send_message(uid, "⏳ До конца обычной войны осталось 3 часа!")
+                        if GROUP_CHAT_ID:
+                            send_message(GROUP_CHAT_ID, "⏳ До конца обычной войны осталось 3 часа!")
+
+            # War start reminder
+            if w2 and w2.get("state") == "preparation":
+                start2 = parse_time(w2.get("startTime"))
+                if start2:
+                    now3 = datetime.now(timezone.utc)
+                    diff_hours3 = (start2 - now3).total_seconds() / 3600
+                    if diff_hours3 <= 0.1 and diff_hours3 > -0.1:
+                        subs = db_get_subs()
+                        for uid, st in subs:
+                            if st == "war_start":
+                                send_message(uid, "🔥 Война началась! Вперёд в бой!")
+                        if GROUP_CHAT_ID:
+                            send_message(GROUP_CHAT_ID, "🔥 Война началась! Вперёд в бой!")
+
+        except Exception as e:
+            print("Notifier error:", e)
+
+        time.sleep(60)
+
 # -------------------- MAIN --------------------
 
 def main():
     print("Бот запущен!")
     db_init()
+    threading.Thread(target=background_notifier, daemon=True).start()
     last_update = None
 
     while True:
@@ -305,6 +1084,9 @@ def main():
             last_update = upd["update_id"]
             handle_update(upd)
         time.sleep(1)
+
+
+        
 
 if __name__ == "__main__":
     main()
