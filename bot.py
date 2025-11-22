@@ -181,6 +181,16 @@ def db_get_all_links_for_user(telegram_id):
     conn.close()
     return [r[0] for r in rows] if rows else []
 
+def db_delete_link(telegram_id, coc_tag):
+    import sqlite3
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute(
+        "DELETE FROM links WHERE telegram_id=? AND coc_tag=?",
+        (str(telegram_id), coc_tag),
+    )
+    conn.commit()
+    conn.close()
+
 def db_get_all_links():
     import sqlite3
     conn = sqlite3.connect(DB_PATH)
@@ -364,6 +374,7 @@ def send_accounts_menu_inline(chat_id, message_id=None):
         "inline_keyboard": [
             [ {"text": "👤 Мои аккаунты", "callback_data": "acc_mine"} ],
             [ {"text": "➕ Добавить аккаунт", "callback_data": "acc_add"} ],
+            [ {"text": "🗑 Удалить аккаунт", "callback_data": "acc_delete"} ],
             [ {"text": "✅ Проверка привязок", "callback_data": "acc_check"} ],
             [ {"text": "🔙 Назад", "callback_data": "back_main"} ],
         ]
@@ -497,6 +508,7 @@ def send_accounts_menu(chat_id):
         "keyboard": [
             [ {"text": "👤 Мои аккаунты"} ],
             [ {"text": "➕ Добавить аккаунт"} ],
+            [ {"text": "🗑 Удалить аккаунт"} ],
             [ {"text": "✅ Проверка привязок"} ],
             [ {"text": "🔙 Назад"} ]
         ],
@@ -880,6 +892,66 @@ def cmd_myattacks(chat_id, user_id):
         msg = "Ни один из ваших аккаунтов не участвует в этой войне."
     send_message(chat_id, msg)
 
+def cmd_delete_account_prompt(chat_id, user_id, message_id=None):
+    tags = db_get_all_links_for_user(user_id)
+    if not tags:
+        send_message(chat_id, "У вас нет привязанных аккаунтов.")
+        return
+
+    keyboard = []
+    seen = set()
+    for tag in tags:
+        norm_tag = normalize_tag(tag)
+        if not norm_tag or norm_tag in seen:
+            continue
+        seen.add(norm_tag)
+        player = get_player(norm_tag)
+        display = f"{player.get('name', norm_tag) if player else norm_tag} ({norm_tag})"
+        keyboard.append([{"text": f"❌ {display}", "callback_data": f"acc_del:{norm_tag}"}])
+
+    keyboard.append([{"text": "🔙 Назад", "callback_data": "menu_accounts"}])
+
+    payload = {
+        "chat_id": chat_id,
+        "text": "Выберите аккаунт для удаления:",
+        "reply_markup": json.dumps({"inline_keyboard": keyboard}),
+    }
+    try:
+        if message_id:
+            payload["message_id"] = message_id
+            requests.post(
+                BASE_TELEGRAM_URL + "/editMessageText",
+                data=payload,
+                timeout=5,
+            )
+            _touch_menu(chat_id, message_id)
+        else:
+            resp = requests.post(
+                BASE_TELEGRAM_URL + "/sendMessage",
+                data=payload,
+                timeout=5,
+            )
+            mid = _extract_message_id(resp)
+            _track_message(chat_id, mid, "menu")
+    except Exception:
+        pass
+
+def cmd_delete_account(chat_id, user_id, tag):
+    norm_tag = normalize_tag(tag)
+    if not norm_tag:
+        send_message(chat_id, "Некорректный тег.")
+        return
+
+    user_tags = [normalize_tag(t) for t in db_get_all_links_for_user(user_id)]
+    if norm_tag not in user_tags:
+        send_message(chat_id, "Этот тег не привязан к вашему Telegram.")
+        return
+
+    db_delete_link(user_id, norm_tag)
+    player = get_player(norm_tag)
+    name = player.get("name", norm_tag) if player else norm_tag
+    send_message(chat_id, f"🗑 Аккаунт {name} ({norm_tag}) удалён.")
+
 def is_user_in_group(user_id):
     if not GROUP_CHAT_ID:
         return True
@@ -1152,8 +1224,15 @@ def handle_callback(cq):
             cmd_mytag(chat_id, user_id)
     elif data == "acc_add":
         send_message(chat_id, "Введите команду в формате: /link #TAG")
+    elif data == "acc_delete":
+        if user_id:
+            cmd_delete_account_prompt(chat_id, user_id, message_id)
     elif data == "acc_check":
         cmd_check_links(chat_id)
+    elif data.startswith("acc_del:"):
+        if user_id:
+            tag = data.split("acc_del:", 1)[1]
+            cmd_delete_account(chat_id, user_id, tag)
 
     # Подписки
     elif data == "sub_war_start":
@@ -1257,6 +1336,8 @@ def handle_update(update):
         cmd_warleft(chat_id)
     elif text == "👤 Мои аккаунты":
         cmd_mytag(chat_id, user_id)
+    elif text == "🗑 Удалить аккаунт":
+        cmd_delete_account_prompt(chat_id, user_id)
     elif text == "✅ Проверка привязок":
         cmd_check_links(chat_id)
     elif text == "✅ Проверить привязки":
