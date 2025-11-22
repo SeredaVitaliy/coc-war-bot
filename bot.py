@@ -1043,6 +1043,65 @@ def background_notifier():
                     if diff_hours > 3:
                         notified_lwk = False
 
+            # LWK war ended notification (notify once)
+            global notified_lwk_end
+            if not 'notified_lwk_end' in globals():
+                notified_lwk_end = False
+
+            if w and w.get("state") == "warEnded" and not notified_lwk_end:
+                notified_lwk_end = True
+
+                clan = w.get("clan", {})
+                opp = w.get("opponent", {})
+
+                clan_name = clan.get("name", "Наш клан")
+                opp_name = opp.get("name", "Противник")
+
+                clan_stars = clan.get("stars", 0)
+                opp_stars = opp.get("stars", 0)
+
+                clan_atk = clan.get("attacks", 0)
+                opp_atk = opp.get("attacks", 0)
+
+                result = "Ничья"
+                if clan_stars > opp_stars:
+                    result = "🏆 Победа!"
+                elif clan_stars < opp_stars:
+                    result = "❌ Поражение"
+
+                missed = []
+                for m in clan.get("members", []):
+                    if not m.get("attacks"):
+                        missed.append(f"{m['name']} — {m['tag']}")
+
+                msg = (
+                    "🔔 *ЛВК-война завершилась!*\n\n"
+                    f"{clan_name} — {opp_name}\n"
+                    f"⭐ {clan_stars} — {opp_stars}\n"
+                    f"⚔ {clan_atk} атак — {opp_atk} атак\n\n"
+                    f"🏁 Итог: *{result}*\n\n"
+                )
+
+                if missed:
+                    msg += "❗ *Не атаковали:*\n" + "\n".join(missed)
+
+                # broadcast to all linked users
+                import sqlite3
+                conn = sqlite3.connect(DB_PATH)
+                cur = conn.execute("SELECT DISTINCT telegram_id FROM links")
+                rows = cur.fetchall()
+                conn.close()
+
+                for row in rows:
+                    send_message(row[0], msg)
+
+                if GROUP_CHAT_ID:
+                    send_message(GROUP_CHAT_ID, msg)
+
+            # Reset LWK war-end flag
+            if w and w.get("state") == "preparation":
+                notified_lwk_end = False
+
             # Ordinary war 3h reminder
             global notified_war
             w2 = get_war()
@@ -1081,6 +1140,62 @@ def background_notifier():
                     # reset for next war
                     if diff_hours2 > 3:
                         notified_war = False
+
+            # Ordinary war ended notification (notify once)
+            global notified_war_end
+            if not 'notified_war_end' in globals():
+                notified_war_end = False
+
+            if w2 and w2.get("state") == "warEnded" and not notified_war_end:
+                notified_war_end = True
+
+                clan = w2.get("clan", {})
+                opp = w2.get("opponent", {})
+
+                clan_name = clan.get("name", "Наш клан")
+                opp_name = opp.get("name", "Противник")
+
+                clan_stars = clan.get("stars", 0)
+                opp_stars = opp.get("stars", 0)
+
+                clan_atk = clan.get("attacks", 0)
+                opp_atk = opp.get("attacks", 0)
+
+                result = "Ничья"
+                if clan_stars > opp_stars:
+                    result = "🏆 Победа!"
+                elif clan_stars < opp_stars:
+                    result = "❌ Поражение"
+
+                missed = []
+                for m in clan.get("members", []):
+                    if not m.get("attacks"):
+                        missed.append(f"{m['name']} — {m['tag']}")
+
+                msg = (
+                    "🔔 *Обычная война завершилась!*\n\n"
+                    f"{clan_name} — {opp_name}\n"
+                    f"⭐ {clan_stars} — {opp_stars}\n"
+                    f"⚔ {clan_atk} атак — {opp_atk} атак\n\n"
+                    f"🏁 Итог: *{result}*\n\n"
+                )
+
+                if missed:
+                    msg += "❗ *Не атаковали:*\n" + "\n".join(missed)
+
+                # Send to group
+                if GROUP_CHAT_ID:
+                    send_message(GROUP_CHAT_ID, msg)
+
+                # Send to all subscribers
+                subs = db_get_subs()
+                for uid, st in subs:
+                    if st in ("war_start", "war_3h"):
+                        send_message(uid, msg)
+
+            # Reset war-end notifier for next war
+            if w2 and w2.get("state") == "preparation":
+                notified_war_end = False
 
             # War start reminder (notify once)
             global notified_war_start
