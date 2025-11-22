@@ -933,10 +933,6 @@ def cmd_check_links(chat_id):
     msg = "✅ Проверка привязок\n\n"
     msg += f"Игроков в клане: {len(members)}\n"
     msg += f"Уникальных привязанных тегов: {len(tag_to_users)}\n"
-    if GROUP_CHAT_ID:
-        msg += f"Чат для проверки: {GROUP_CHAT_ID}\n"
-    else:
-        msg += "Чат для проверки не задан (GROUP_CHAT_ID).\n"
 
     if missing_links:
         msg += "\n❗ Нет привязки:\n" + "\n".join(missing_links)
