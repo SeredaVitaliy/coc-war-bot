@@ -906,11 +906,14 @@ def cmd_check_links(chat_id):
     members = clan.get("memberList", [])
     links = db_get_all_links()
 
+    # Собираем все привязанные теги (только по тегам, без зависимости от telegram_id)
     tag_to_users = {}
+    linked_tags = set()
     for uid, tag in links:
         norm_tag = normalize_tag(tag)
         if not norm_tag:
             continue
+        linked_tags.add(norm_tag)
         tag_to_users.setdefault(norm_tag, set()).add(uid)
 
     missing_links = []
@@ -918,21 +921,24 @@ def cmd_check_links(chat_id):
 
     for member in members:
         tag = normalize_tag(member.get("tag"))
+        if not tag:
+            continue
         name = member.get("name", tag)
-        linked_users = tag_to_users.get(tag)
 
-        if not linked_users:
+        # Нет ни одной привязки с этим тегом
+        if tag not in linked_tags:
             missing_links.append(f"{name} — {tag}")
             continue
 
+        # Тег привязан, но ни один из связанных пользователей не в группе
         if GROUP_CHAT_ID:
-            in_group = any(is_user_in_group(uid) for uid in linked_users)
-            if not in_group:
+            linked_users = tag_to_users.get(tag, set())
+            if linked_users and not any(is_user_in_group(uid) for uid in linked_users):
                 missing_group.append(f"{name} — {tag}")
 
     msg = "✅ Проверка привязок\n\n"
     msg += f"Игроков в клане: {len(members)}\n"
-    msg += f"Уникальных привязанных тегов: {len(tag_to_users)}\n"
+    msg += f"Уникальных привязанных тегов: {len(linked_tags)}\n"
 
     if missing_links:
         msg += "\n❗ Нет привязки:\n" + "\n".join(missing_links)
