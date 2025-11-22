@@ -532,13 +532,16 @@ def cmd_warstatus(chat_id):
         send_message(chat_id, "Не удалось получить данные о войне.")
         return
     state = w.get("state", "?")
-    msg = f"📌 Статус войны: *{state}*\n\n"
+    msg = (
+        "📊 **Статус войны**\n\n"
+        f"🏷️ **Этап:** {state}\n"
+    )
     if "startTime" in w:
         start = parse_time(w["startTime"])
-        msg += f"До начала: {format_diff(start)}\n"
+        msg += f"⏳ **До начала:** {format_diff(start)}\n"
     if "endTime" in w:
         end = parse_time(w["endTime"])
-        msg += f"До конца: {format_diff(end)}\n"
+        msg += f"⏳ **До конца:** {format_diff(end)}\n"
     send_message(chat_id, msg)
 
 def cmd_warstart(chat_id):
@@ -590,9 +593,10 @@ def cmd_war_current(chat_id):
     clan_atk = clan.get("attacks", 0)
     opp_atk = opp.get("attacks", 0)
     msg = (
+        "📈 **Текущая война**\n\n"
         f"{clan_name} — {opp_name}\n"
-        f"{clan_stars}⭐ — {opp_stars}⭐\n"
-        f"{clan_atk} атак — {opp_atk} атак"
+        f"⭐ {clan_stars} — {opp_stars}\n"
+        f"⚔ {clan_atk} атак — {opp_atk} атак\n"
     )
     send_message(chat_id, msg)
 
@@ -601,7 +605,7 @@ def cmd_missed(chat_id):
     if not w or w["state"] != "inWar":
         send_message(chat_id, "Война не идёт.")
         return
-    msg = "❗ Не сделали ни одной атаки:\n\n"
+    msg = "❗ **Не сделали атаку:**\n\n"
     missed = []
     for m in w["clan"]["members"]:
         if not m.get("attacks"):
@@ -647,7 +651,7 @@ def cmd_myattacks(chat_id, user_id):
         send_message(chat_id, "Сейчас нет войны.")
         return
     members = w["clan"]["members"]
-    msg = "Ваши атаки:\n\n"
+    msg = "⚔ **Ваши атаки:**\n\n"
     found_any = False
     for tag in tags:
         me = next((m for m in members if m["tag"] == tag), None)
@@ -673,10 +677,12 @@ def cmd_lwk_status(chat_id):
         send_message(chat_id, "ЛВК-война сейчас не идёт.")
         return
     state = w.get("state", "?")
-    msg = f"📌 Статус ЛВК: *{state}*\n\n"
-    if "endTime" in w:
-        end = parse_time(w["endTime"])
-        msg += f"До конца: {format_diff(end)}\n"
+    end = parse_time(w["endTime"]) if "endTime" in w else None
+    msg = (
+        "📊 **Статус ЛВК**\n\n"
+        f"🏷️ **Этап:** {state}\n"
+        f"⏳ **До конца:** {format_diff(end)}\n"
+    )
     send_message(chat_id, msg)
 
 def cmd_lwk_end(chat_id):
@@ -740,13 +746,11 @@ def cmd_lwk_progress(chat_id):
     size = w.get("teamSize", 0)
     max_attacks = size * 2
     done = clan.get("attacks", 0)
-    left = max_attacks - done
     msg = (
-        "🔥 Прогресс ЛВК:\n\n"
-        f"Выполнено атак: {done}/{max_attacks}\n"
-        f"Осталось: {left}\n"
-        f"Звёзды: {clan.get('stars', 0)}\n"
-        f"Процент разрушения: {clan.get('destructionPercentage', 0)}%\n"
+        "🔥 **Прогресс ЛВК**\n\n"
+        f"⭐ **Звёзды:** {clan.get('stars',0)}\n"
+        f"⚔ **Атаки:** {done}/{max_attacks}\n"
+        f"🔨 **Разрушение:** {clan.get('destructionPercentage',0)}%\n"
     )
     send_message(chat_id, msg)
 
@@ -758,11 +762,10 @@ def cmd_lwk_compare(chat_id):
     clan = w.get("clan", {})
     opp = w.get("opponent", {})
     msg = (
-        "⭐ Сравнение звёзд:\n\n"
-        f"{clan.get('name', 'Наш клан')} — {clan.get('stars', 0)}⭐\n"
-        f"{opp.get('name', 'Противник')} — {opp.get('stars', 0)}⭐\n\n"
-        "💥 Разница: " +
-        str(clan.get('stars', 0) - opp.get('stars', 0))
+        "⭐ **Сравнение звёзд**\n\n"
+        f"{clan.get('name','Наш клан')} — {clan.get('stars',0)}⭐\n"
+        f"{opp.get('name','Противник')} — {opp.get('stars',0)}⭐\n\n"
+        f"💥 **Разница:** {clan.get('stars',0) - opp.get('stars',0)}"
     )
     send_message(chat_id, msg)
 
@@ -771,7 +774,7 @@ def cmd_lwk_rounds(chat_id):
     if not group or "rounds" not in group:
         send_message(chat_id, "Не удалось получить раунды ЛВК.")
         return
-    msg = "📋 Раунды ЛВК:\n\n"
+    msg = "📋 **Раунды ЛВК**\n\n"
     for i, rnd in enumerate(group["rounds"], start=1):
         msg += f"Раунд {i}:\n"
         for tag in rnd.get("warTags", []):
@@ -787,13 +790,13 @@ def cmd_lwk_table(chat_id):
     clan = w.get("clan", {})
     opp = w.get("opponent", {})
     msg = (
-        "📈 Таблица ЛВК:\n\n"
-        f"{clan.get('name', 'Наш клан')}:\n"
-        f" ⭐ {clan.get('stars', 0)}\n"
-        f" 🔨 {clan.get('destructionPercentage', 0)}%\n\n"
-        f"{opp.get('name', 'Противник')}:\n"
-        f" ⭐ {opp.get('stars', 0)}\n"
-        f" 🔨 {opp.get('destructionPercentage', 0)}%\n"
+        "📈 **Таблица ЛВК**\n\n"
+        f"{clan.get('name','Наш клан')}:\n"
+        f"⭐ {clan.get('stars',0)}\n"
+        f"🔨 {clan.get('destructionPercentage',0)}%\n\n"
+        f"{opp.get('name','Противник')}:\n"
+        f"⭐ {opp.get('stars',0)}\n"
+        f"🔨 {opp.get('destructionPercentage',0)}%\n"
     )
     send_message(chat_id, msg)
 
@@ -889,6 +892,8 @@ def handle_update(update):
         handle_callback(cq)
         return
     msg = update.get("message") or update.get("edited_message")
+    if not msg:
+        return
     # --- FILTER GROUP CHAT NOISE ---
     chat = msg.get("chat", {})
     chat_type = chat.get("type")
@@ -902,8 +907,6 @@ def handle_update(update):
         # react ONLY to slash commands in group chats
         if not lower.startswith("/"):
             return
-    if not msg:
-        return
     chat_id = msg["chat"]["id"]
     text = msg.get("text", "").strip()
     user_id = msg["from"]["id"]
@@ -911,6 +914,8 @@ def handle_update(update):
     print(f"[UPDATE] chat={chat_id} text={text}")
 
     if text == "/start":
+        cmd_start(chat_id)
+    elif text == "/menu":
         cmd_start(chat_id)
     elif text == "📁 Война":
         send_war_menu(chat_id)
