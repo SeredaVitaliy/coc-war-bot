@@ -42,6 +42,95 @@ PLAYER_URL = "https://api.clashofclans.com/v1/players/"
 
 COC_HEADERS = {"Authorization": f"Bearer {COC_API_TOKEN}"} if COC_API_TOKEN else {}
 
+# -------------------- АВТОУДАЛЕНИЕ СООБЩЕНИЙ --------------------
+
+AUTO_DELETE_SECONDS = 8 * 60
+MENU_INACTIVITY_SECONDS = 6 * 60
+
+_tracked_messages = []
+_tracked_lock = threading.Lock()
+
+
+def _extract_message_id(response):
+    try:
+        data = response.json()
+        return data.get("result", {}).get("message_id")
+    except Exception:
+        return None
+
+
+def _track_message(chat_id, message_id, kind):
+    if not message_id:
+        return
+    now = time.time()
+    with _tracked_lock:
+        _tracked_messages[:] = [
+            m for m in _tracked_messages
+            if not (m["chat_id"] == chat_id and m["message_id"] == message_id)
+        ]
+        _tracked_messages.append({
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "type": kind,  # "menu" или "reply"
+            "created_at": now,
+            "last_activity": now,
+        })
+
+
+def _touch_menu(chat_id, message_id):
+    if not message_id:
+        return
+    now = time.time()
+    with _tracked_lock:
+        for m in _tracked_messages:
+            if m["chat_id"] == chat_id and m["message_id"] == message_id and m["type"] == "menu":
+                m["last_activity"] = now
+                break
+
+
+def _touch_all_menus(chat_id):
+    now = time.time()
+    with _tracked_lock:
+        for m in _tracked_messages:
+            if m["chat_id"] == chat_id and m["type"] == "menu":
+                m["last_activity"] = now
+
+
+def delete_message(chat_id, message_id):
+    try:
+        requests.post(
+            BASE_TELEGRAM_URL + "/deleteMessage",
+            data={"chat_id": chat_id, "message_id": message_id},
+            timeout=5,
+        )
+    except Exception:
+        pass
+
+
+def auto_cleanup_worker():
+    while True:
+        now = time.time()
+        to_delete = []
+        with _tracked_lock:
+            keep = []
+            for m in _tracked_messages:
+                if m["type"] == "menu":
+                    if now - m["last_activity"] >= MENU_INACTIVITY_SECONDS:
+                        to_delete.append(m)
+                    else:
+                        keep.append(m)
+                else:
+                    if now - m["created_at"] >= AUTO_DELETE_SECONDS:
+                        to_delete.append(m)
+                    else:
+                        keep.append(m)
+            _tracked_messages[:] = keep
+
+        for m in to_delete:
+            delete_message(m["chat_id"], m["message_id"])
+
+        time.sleep(30)
+
 # -------------------- ЛОКАЛЬНАЯ БД (в одном файле) --------------------
 
 DB_PATH = "links.db"
@@ -129,7 +218,7 @@ def send_keyboard(chat_id):
         "resize_keyboard": True
     }
     try:
-        requests.post(
+        resp = requests.post(
             BASE_TELEGRAM_URL + "/sendMessage",
             data={
                 "chat_id": chat_id,
@@ -138,7 +227,9 @@ def send_keyboard(chat_id):
             },
             timeout=5,
         )
-    except:
+        message_id = _extract_message_id(resp)
+        _track_message(chat_id, message_id, "menu")
+    except Exception:
         pass
 
 
@@ -166,13 +257,16 @@ def send_main_menu_inline(chat_id, message_id=None):
                 data=payload,
                 timeout=5,
             )
+            _touch_menu(chat_id, message_id)
         else:
-            requests.post(
+            resp = requests.post(
                 BASE_TELEGRAM_URL + "/sendMessage",
                 data=payload,
                 timeout=5,
             )
-    except:
+            message_id = _extract_message_id(resp)
+            _track_message(chat_id, message_id, "menu")
+    except Exception:
         pass
 
 
@@ -199,13 +293,16 @@ def send_war_menu_inline(chat_id, message_id=None):
                 data=payload,
                 timeout=5,
             )
+            _touch_menu(chat_id, message_id)
         else:
-            requests.post(
+            resp = requests.post(
                 BASE_TELEGRAM_URL + "/sendMessage",
                 data=payload,
                 timeout=5,
             )
-    except:
+            message_id = _extract_message_id(resp)
+            _track_message(chat_id, message_id, "menu")
+    except Exception:
         pass
 
 
@@ -233,13 +330,16 @@ def send_lwk_menu_inline(chat_id, message_id=None):
                 data=payload,
                 timeout=5,
             )
+            _touch_menu(chat_id, message_id)
         else:
-            requests.post(
+            resp = requests.post(
                 BASE_TELEGRAM_URL + "/sendMessage",
                 data=payload,
                 timeout=5,
             )
-    except:
+            message_id = _extract_message_id(resp)
+            _track_message(chat_id, message_id, "menu")
+    except Exception:
         pass
 
 
@@ -264,13 +364,16 @@ def send_accounts_menu_inline(chat_id, message_id=None):
                 data=payload,
                 timeout=5,
             )
+            _touch_menu(chat_id, message_id)
         else:
-            requests.post(
+            resp = requests.post(
                 BASE_TELEGRAM_URL + "/sendMessage",
                 data=payload,
                 timeout=5,
             )
-    except:
+            message_id = _extract_message_id(resp)
+            _track_message(chat_id, message_id, "menu")
+    except Exception:
         pass
 
 
@@ -297,13 +400,16 @@ def send_subscriptions_menu_inline(chat_id, message_id=None):
                 data=payload,
                 timeout=5,
             )
+            _touch_menu(chat_id, message_id)
         else:
-            requests.post(
+            resp = requests.post(
                 BASE_TELEGRAM_URL + "/sendMessage",
                 data=payload,
                 timeout=5,
             )
-    except:
+            message_id = _extract_message_id(resp)
+            _track_message(chat_id, message_id, "menu")
+    except Exception:
         pass
 
 
@@ -321,7 +427,7 @@ def send_war_menu(chat_id):
         "resize_keyboard": True
     }
     try:
-        requests.post(
+        resp = requests.post(
             BASE_TELEGRAM_URL + "/sendMessage",
             data={
                 "chat_id": chat_id,
@@ -330,7 +436,9 @@ def send_war_menu(chat_id):
             },
             timeout=5,
         )
-    except:
+        message_id = _extract_message_id(resp)
+        _track_message(chat_id, message_id, "menu")
+    except Exception:
         pass
 
 
@@ -344,7 +452,7 @@ def send_accounts_menu(chat_id):
         "resize_keyboard": True
     }
     try:
-        requests.post(
+        resp = requests.post(
             BASE_TELEGRAM_URL + "/sendMessage",
             data={
                 "chat_id": chat_id,
@@ -353,7 +461,9 @@ def send_accounts_menu(chat_id):
             },
             timeout=5,
         )
-    except:
+        message_id = _extract_message_id(resp)
+        _track_message(chat_id, message_id, "menu")
+    except Exception:
         pass
 
 
@@ -372,7 +482,7 @@ def send_lwk_menu(chat_id):
         "resize_keyboard": True
     }
     try:
-        requests.post(
+        resp = requests.post(
             BASE_TELEGRAM_URL + "/sendMessage",
             data={
                 "chat_id": chat_id,
@@ -381,7 +491,9 @@ def send_lwk_menu(chat_id):
             },
             timeout=5,
         )
-    except:
+        message_id = _extract_message_id(resp)
+        _track_message(chat_id, message_id, "menu")
+    except Exception:
         pass
 
 # -------------------- SUBSCRIPTIONS MENU --------------------
@@ -397,7 +509,7 @@ def send_subscriptions_menu(chat_id):
         "resize_keyboard": True
     }
     try:
-        requests.post(
+        resp = requests.post(
             BASE_TELEGRAM_URL + "/sendMessage",
             data={
                 "chat_id": chat_id,
@@ -406,18 +518,30 @@ def send_subscriptions_menu(chat_id):
             },
             timeout=5,
         )
-    except:
+        message_id = _extract_message_id(resp)
+        _track_message(chat_id, message_id, "menu")
+    except Exception:
         pass
 
-def send_message(chat_id, text):
+def send_message(chat_id, text, *, parse_mode="Markdown", auto_delete=True, reply_markup=None):
     try:
-        requests.post(
+        payload = {"chat_id": chat_id, "text": text}
+        if parse_mode:
+            payload["parse_mode"] = parse_mode
+        if reply_markup:
+            payload["reply_markup"] = reply_markup if isinstance(reply_markup, str) else json.dumps(reply_markup)
+
+        resp = requests.post(
             BASE_TELEGRAM_URL + "/sendMessage",
-            data={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"},
+            data=payload,
             timeout=5,
         )
-    except:
-        pass
+        message_id = _extract_message_id(resp)
+        if auto_delete:
+            _track_message(chat_id, message_id, "reply")
+        return message_id
+    except Exception:
+        return None
 
 def get_updates(offset=None):
     params = {"timeout": 30}
@@ -814,6 +938,8 @@ def handle_callback(cq):
     user_id = user.get("id")
 
     print(f"[CALLBACK] chat={chat_id} data={data}")
+    _touch_menu(chat_id, message_id)
+    _touch_all_menus(chat_id)
 
     # Меню навигации
     if data == "menu_war":
@@ -910,6 +1036,7 @@ def handle_update(update):
     chat_id = msg["chat"]["id"]
     text = msg.get("text", "").strip()
     user_id = msg["from"]["id"]
+    _touch_all_menus(chat_id)
 
     print(f"[UPDATE] chat={chat_id} text={text}")
 
@@ -1033,11 +1160,11 @@ def background_notifier():
 
                         for row in rows:
                             chat_id = row[0]
-                            send_message(chat_id, message)
+                            send_message(chat_id, message, auto_delete=False)
 
                         # Send to group chat if configured
                         if GROUP_CHAT_ID:
-                            send_message(GROUP_CHAT_ID, message)
+                            send_message(GROUP_CHAT_ID, message, auto_delete=False)
 
                     # Reset flag for next war
                     if diff_hours > 3:
@@ -1093,10 +1220,10 @@ def background_notifier():
                 conn.close()
 
                 for row in rows:
-                    send_message(row[0], msg)
+                    send_message(row[0], msg, auto_delete=False)
 
                 if GROUP_CHAT_ID:
-                    send_message(GROUP_CHAT_ID, msg)
+                    send_message(GROUP_CHAT_ID, msg, auto_delete=False)
 
             # Reset LWK war-end flag
             if w and w.get("state") == "preparation":
@@ -1131,11 +1258,11 @@ def background_notifier():
                         subs = db_get_subs()
                         for uid, st in subs:
                             if st == "war_3h":
-                                send_message(uid, message)
+                                send_message(uid, message, auto_delete=False)
 
                         # Send to group chat if configured
                         if GROUP_CHAT_ID:
-                            send_message(GROUP_CHAT_ID, message)
+                            send_message(GROUP_CHAT_ID, message, auto_delete=False)
 
                     # reset for next war
                     if diff_hours2 > 3:
@@ -1185,13 +1312,13 @@ def background_notifier():
 
                 # Send to group
                 if GROUP_CHAT_ID:
-                    send_message(GROUP_CHAT_ID, msg)
+                    send_message(GROUP_CHAT_ID, msg, auto_delete=False)
 
                 # Send to all subscribers
                 subs = db_get_subs()
                 for uid, st in subs:
                     if st in ("war_start", "war_3h"):
-                        send_message(uid, msg)
+                        send_message(uid, msg, auto_delete=False)
 
             # Reset war-end notifier for next war
             if w2 and w2.get("state") == "preparation":
@@ -1209,9 +1336,9 @@ def background_notifier():
                         subs = db_get_subs()
                         for uid, st in subs:
                             if st == "war_start":
-                                send_message(uid, "🔥 Война началась! Вперёд в бой!")
+                                send_message(uid, "🔥 Война началась! Вперёд в бой!", auto_delete=False)
                         if GROUP_CHAT_ID:
-                            send_message(GROUP_CHAT_ID, "🔥 Война началась! Вперёд в бой!")
+                            send_message(GROUP_CHAT_ID, "🔥 Война началась! Вперёд в бой!", auto_delete=False)
             # Reset for next war
             if w2 and w2.get("state") == "warEnded":
                 notified_war_start = False
@@ -1226,6 +1353,7 @@ def background_notifier():
 def main():
     print("Бот запущен!")
     db_init()
+    threading.Thread(target=auto_cleanup_worker, daemon=True).start()
     threading.Thread(target=background_notifier, daemon=True).start()
     last_update = None
 
