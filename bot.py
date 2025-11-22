@@ -181,6 +181,14 @@ def db_get_all_links_for_user(telegram_id):
     conn.close()
     return [r[0] for r in rows] if rows else []
 
+def db_get_all_links():
+    import sqlite3
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.execute("SELECT telegram_id, coc_tag FROM links")
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
 # -------------------- SUBSCRIPTION HELPERS --------------------
 def db_add_sub(telegram_id, sub_type):
     import sqlite3
@@ -206,6 +214,12 @@ def db_clear_subs_for_user(telegram_id):
     conn.close()
 
 # -------------------- УТИЛИТЫ --------------------
+
+def normalize_tag(tag):
+    tag = (tag or "").strip().upper()
+    if tag and not tag.startswith("#"):
+        tag = "#" + tag
+    return tag
 
 def send_keyboard(chat_id):
     keyboard = {
@@ -348,6 +362,7 @@ def send_accounts_menu_inline(chat_id, message_id=None):
         "inline_keyboard": [
             [ {"text": "👤 Мои аккаунты", "callback_data": "acc_mine"} ],
             [ {"text": "➕ Добавить аккаунт", "callback_data": "acc_add"} ],
+            [ {"text": "✅ Проверка привязок", "callback_data": "acc_check"} ],
             [ {"text": "🔙 Назад", "callback_data": "back_main"} ],
         ]
     }
@@ -447,6 +462,7 @@ def send_accounts_menu(chat_id):
         "keyboard": [
             [ {"text": "👤 Мои аккаунты"} ],
             [ {"text": "➕ Добавить аккаунт"} ],
+            [ {"text": "✅ Проверка привязок"} ],
             [ {"text": "🔙 Назад"} ]
         ],
         "resize_keyboard": True
@@ -572,6 +588,18 @@ def get_player(tag):
         return None
     url = PLAYER_URL + requests.utils.quote(tag)
     try:
+        r = requests.get(url, headers=COC_HEADERS, timeout=10)
+        if r.status_code != 200:
+            return None
+        return r.json()
+    except:
+        return None
+
+def get_clan():
+    if not COC_API_TOKEN or not CLAN_TAG_ENCODED:
+        return None
+    try:
+        url = f"https://api.clashofclans.com/v1/clans/{CLAN_TAG_ENCODED}"
         r = requests.get(url, headers=COC_HEADERS, timeout=10)
         if r.status_code != 200:
             return None
@@ -744,10 +772,11 @@ def cmd_link(chat_id, user_id, text):
     if len(parts) < 2:
         send_message(chat_id, "Использование: /link #TAG")
         return
-    tag = parts[1].upper()
-    if not tag.startswith("#"):
+    tag_raw = parts[1].strip()
+    if not tag_raw.startswith("#"):
         send_message(chat_id, "Тег должен начинаться с #")
         return
+    tag = normalize_tag(tag_raw)
     db_save_link(user_id, tag)
     player = get_player(tag)
     player_name = player.get("name", tag) if player else tag
@@ -792,6 +821,76 @@ def cmd_myattacks(chat_id, user_id):
     if not found_any:
         msg = "Ни один из ваших аккаунтов не участвует в этой войне."
     send_message(chat_id, msg)
+
+def is_user_in_group(user_id):
+    if not GROUP_CHAT_ID:
+        return True
+    try:
+        r = requests.get(
+            BASE_TELEGRAM_URL + "/getChatMember",
+            params={"chat_id": GROUP_CHAT_ID, "user_id": user_id},
+            timeout=5,
+        )
+        if r.status_code != 200:
+            return False
+        data = r.json()
+        status = data.get("result", {}).get("status")
+        return status in ("creator", "administrator", "member", "restricted")
+    except Exception:
+        return False
+
+def cmd_check_links(chat_id):
+    clan = get_clan()
+    if not clan or "memberList" not in clan:
+        send_message(chat_id, "Не удалось получить список клана. Проверьте CLAN_TAG и COC_API_TOKEN.")
+        return
+
+    members = clan.get("memberList", [])
+    links = db_get_all_links()
+
+    tag_to_users = {}
+    for uid, tag in links:
+        norm_tag = normalize_tag(tag)
+        if not norm_tag:
+            continue
+        tag_to_users.setdefault(norm_tag, set()).add(uid)
+
+    missing_links = []
+    missing_group = []
+
+    for member in members:
+        tag = normalize_tag(member.get("tag"))
+        name = member.get("name", tag)
+        linked_users = tag_to_users.get(tag)
+
+        if not linked_users:
+            missing_links.append(f"{name} — {tag}")
+            continue
+
+        if GROUP_CHAT_ID:
+            in_group = any(is_user_in_group(uid) for uid in linked_users)
+            if not in_group:
+                missing_group.append(f"{name} — {tag}")
+
+    msg = "✅ Проверка привязок\n\n"
+    msg += f"Игроков в клане: {len(members)}\n"
+    msg += f"Уникальных привязанных тегов: {len(tag_to_users)}\n"
+    if GROUP_CHAT_ID:
+        msg += f"Чат для проверки: {GROUP_CHAT_ID}\n"
+    else:
+        msg += "Чат для проверки не задан (GROUP_CHAT_ID).\n"
+
+    if missing_links:
+        msg += "\n❗ Нет привязки:\n" + "\n".join(missing_links)
+
+    if GROUP_CHAT_ID and missing_group:
+        msg += "\n\n🚪 Вне группы (но привязаны):\n" + "\n".join(missing_group)
+
+    if not missing_links and (not GROUP_CHAT_ID or not missing_group):
+        tail = " и состоят в группе" if GROUP_CHAT_ID else ""
+        msg += f"\nВсе игроки привязали теги{tail}."
+
+    send_message(chat_id, msg, auto_delete=False)
 
 # -------------------- ОБРАБОТКА --------------------
 
@@ -991,6 +1090,8 @@ def handle_callback(cq):
             cmd_mytag(chat_id, user_id)
     elif data == "acc_add":
         send_message(chat_id, "Введите команду в формате: /link #TAG")
+    elif data == "acc_check":
+        cmd_check_links(chat_id)
 
     # Подписки
     elif data == "sub_war_start":
@@ -1088,6 +1189,8 @@ def handle_update(update):
         cmd_warleft(chat_id)
     elif text == "👤 Мои аккаунты":
         cmd_mytag(chat_id, user_id)
+    elif text == "✅ Проверка привязок":
+        cmd_check_links(chat_id)
     elif text == "⚔ Мои атаки":
         cmd_myattacks(chat_id, user_id)
     elif text == "📈 Текущая война":
@@ -1108,6 +1211,8 @@ def handle_update(update):
         cmd_war_current(chat_id)
     elif text == "/missed":
         cmd_missed(chat_id)
+    elif text == "/checklinks":
+        cmd_check_links(chat_id)
     elif text.startswith("/link"):
         cmd_link(chat_id, user_id, text)
     elif text == "/mytag":
