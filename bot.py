@@ -227,7 +227,8 @@ def send_keyboard(chat_id):
             [ {"text": "📁 Война"} ],
             [ {"text": "📁 ЛВК"} ],
             [ {"text": "📁 Аккаунты"} ],
-            [ {"text": "📁 Подписки"} ]
+            [ {"text": "📁 Подписки"} ],
+            [ {"text": "📁 Проверка"} ]
         ],
         "resize_keyboard": True
     }
@@ -256,6 +257,7 @@ def send_main_menu_inline(chat_id, message_id=None):
             [ {"text": "📁 ЛВК", "callback_data": "menu_lwk"} ],
             [ {"text": "📁 Аккаунты", "callback_data": "menu_accounts"} ],
             [ {"text": "📁 Подписки", "callback_data": "menu_subs"} ],
+            [ {"text": "📁 Проверка", "callback_data": "menu_check"} ],
         ]
     }
     payload = {
@@ -428,6 +430,39 @@ def send_subscriptions_menu_inline(chat_id, message_id=None):
         pass
 
 
+def send_check_menu_inline(chat_id, message_id=None):
+    keyboard = {
+        "inline_keyboard": [
+            [ {"text": "✅ Проверить привязки", "callback_data": "check_run"} ],
+            [ {"text": "🔙 Назад", "callback_data": "back_main"} ],
+        ]
+    }
+    payload = {
+        "chat_id": chat_id,
+        "text": "Раздел: Проверка",
+        "reply_markup": json.dumps(keyboard),
+    }
+    try:
+        if message_id:
+            payload["message_id"] = message_id
+            requests.post(
+                BASE_TELEGRAM_URL + "/editMessageText",
+                data=payload,
+                timeout=5,
+            )
+            _touch_menu(chat_id, message_id)
+        else:
+            resp = requests.post(
+                BASE_TELEGRAM_URL + "/sendMessage",
+                data=payload,
+                timeout=5,
+            )
+            message_id = _extract_message_id(resp)
+            _track_message(chat_id, message_id, "menu")
+    except Exception:
+        pass
+
+
 # -------------------- SUBMENU KEYBOARDS --------------------
 
 def send_war_menu(chat_id):
@@ -530,6 +565,29 @@ def send_subscriptions_menu(chat_id):
             data={
                 "chat_id": chat_id,
                 "text": "Раздел: Подписки",
+                "reply_markup": json.dumps(keyboard)
+            },
+            timeout=5,
+        )
+        message_id = _extract_message_id(resp)
+        _track_message(chat_id, message_id, "menu")
+    except Exception:
+        pass
+
+def send_check_menu(chat_id):
+    keyboard = {
+        "keyboard": [
+            [ {"text": "✅ Проверить привязки"} ],
+            [ {"text": "🔙 Назад"} ]
+        ],
+        "resize_keyboard": True
+    }
+    try:
+        resp = requests.post(
+            BASE_TELEGRAM_URL + "/sendMessage",
+            data={
+                "chat_id": chat_id,
+                "text": "Раздел: Проверка",
                 "reply_markup": json.dumps(keyboard)
             },
             timeout=5,
@@ -1049,6 +1107,8 @@ def handle_callback(cq):
         send_accounts_menu_inline(chat_id, message_id)
     elif data == "menu_subs":
         send_subscriptions_menu_inline(chat_id, message_id)
+    elif data == "menu_check":
+        send_check_menu_inline(chat_id, message_id)
     elif data == "back_main":
         send_main_menu_inline(chat_id, message_id)
 
@@ -1111,6 +1171,10 @@ def handle_callback(cq):
             db_clear_subs_for_user(user_id)
             send_message(chat_id, "🔕 Все ваши подписки отключены.")
 
+    # Проверка
+    elif data == "check_run":
+        cmd_check_links(chat_id)
+
 
 def handle_update(update):
     # Обработка callback-кнопок
@@ -1169,6 +1233,8 @@ def handle_update(update):
         send_accounts_menu(chat_id)
     elif text == "📁 Подписки":
         send_subscriptions_menu(chat_id)
+    elif text == "📁 Проверка":
+        send_check_menu(chat_id)
     elif text == "🔔 Напомнить о начале войны":
         db_add_sub(user_id, "war_start")
         send_message(chat_id, "Подписка добавлена: уведомить о начале войны.")
@@ -1190,6 +1256,8 @@ def handle_update(update):
     elif text == "👤 Мои аккаунты":
         cmd_mytag(chat_id, user_id)
     elif text == "✅ Проверка привязок":
+        cmd_check_links(chat_id)
+    elif text == "✅ Проверить привязки":
         cmd_check_links(chat_id)
     elif text == "⚔ Мои атаки":
         cmd_myattacks(chat_id, user_id)
