@@ -994,6 +994,8 @@ def handle_update(update):
 # -------------------- BACKGROUND NOTIFIER --------------------
 
 notified_lwk = False
+notified_war = False
+notified_war_start = False
 
 def background_notifier():
     global notified_lwk
@@ -1042,33 +1044,62 @@ def background_notifier():
                         notified_lwk = False
 
             # Ordinary war 3h reminder
+            global notified_war
             w2 = get_war()
             if w2 and w2.get("state") == "inWar":
                 end2 = parse_time(w2.get("endTime"))
                 if end2:
                     now2 = datetime.now(timezone.utc)
                     diff_hours2 = (end2 - now2).total_seconds() / 3600
-                    if diff_hours2 <= 3 and diff_hours2 > 0:
+
+                    # notify once
+                    if diff_hours2 <= 3 and diff_hours2 > 0 and not notified_war:
+                        notified_war = True
+
+                        # Build missed list
+                        missed = []
+                        for m in w2["clan"]["members"]:
+                            if not m.get("attacks"):
+                                missed.append(f"{m['name']} — {m['tag']}")
+
+                        message = "⏳ *До конца обычной войны осталось 3 часа!*\n\n"
+                        if missed:
+                            message += "❗ Не били:\n" + "\n".join(missed)
+                        else:
+                            message += "🎉 Все уже атаковали!"
+
+                        # Send to subscribers
                         subs = db_get_subs()
                         for uid, st in subs:
                             if st == "war_3h":
-                                send_message(uid, "⏳ До конца обычной войны осталось 3 часа!")
-                        if GROUP_CHAT_ID:
-                            send_message(GROUP_CHAT_ID, "⏳ До конца обычной войны осталось 3 часа!")
+                                send_message(uid, message)
 
-            # War start reminder
+                        # Send to group chat if configured
+                        if GROUP_CHAT_ID:
+                            send_message(GROUP_CHAT_ID, message)
+
+                    # reset for next war
+                    if diff_hours2 > 3:
+                        notified_war = False
+
+            # War start reminder (notify once)
+            global notified_war_start
             if w2 and w2.get("state") == "preparation":
                 start2 = parse_time(w2.get("startTime"))
                 if start2:
                     now3 = datetime.now(timezone.utc)
                     diff_hours3 = (start2 - now3).total_seconds() / 3600
-                    if diff_hours3 <= 0.1 and diff_hours3 > -0.1:
+                    if diff_hours3 <= 0 and not notified_war_start:
+                        notified_war_start = True
                         subs = db_get_subs()
                         for uid, st in subs:
                             if st == "war_start":
                                 send_message(uid, "🔥 Война началась! Вперёд в бой!")
                         if GROUP_CHAT_ID:
                             send_message(GROUP_CHAT_ID, "🔥 Война началась! Вперёд в бой!")
+            # Reset for next war
+            if w2 and w2.get("state") == "warEnded":
+                notified_war_start = False
 
         except Exception as e:
             print("Notifier error:", e)
