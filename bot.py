@@ -144,7 +144,7 @@ def db_init():
     import sqlite3
     conn = sqlite3.connect(DB_PATH)
     conn.execute("""
-        CREATE TABLE IF NOT EXISTS links (
+        CREATE TABLE IF NOT EXISTS links2 (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             telegram_id TEXT NOT NULL,
             coc_tag TEXT NOT NULL
@@ -163,17 +163,22 @@ def db_init():
 def db_save_link(telegram_id, coc_tag):
     import sqlite3
     conn = sqlite3.connect(DB_PATH)
-    conn.execute("""
-        INSERT INTO links (telegram_id, coc_tag)
-        VALUES (?, ?)
-    """, (str(telegram_id), coc_tag))
-    conn.commit()
-    conn.close()
+    try:
+        conn.execute("""
+            INSERT INTO links2 (telegram_id, coc_tag)
+            VALUES (?, ?)
+        """, (str(telegram_id), coc_tag))
+        conn.commit()
+    except sqlite3.IntegrityError:
+        # Если вдруг есть старые уникальные ограничения — не падаем
+        pass
+    finally:
+        conn.close()
 
 def db_get_link(telegram_id):
     import sqlite3
     conn = sqlite3.connect(DB_PATH)
-    cur = conn.execute("SELECT coc_tag FROM links WHERE telegram_id=?", (str(telegram_id),))
+    cur = conn.execute("SELECT coc_tag FROM links2 WHERE telegram_id=?", (str(telegram_id),))
     rows = cur.fetchall()
     conn.close()
     return [r[0] for r in rows] if rows else []
@@ -181,7 +186,7 @@ def db_get_link(telegram_id):
 def db_get_all_links_for_user(telegram_id):
     import sqlite3
     conn = sqlite3.connect(DB_PATH)
-    cur = conn.execute("SELECT coc_tag FROM links WHERE telegram_id=?", (str(telegram_id),))
+    cur = conn.execute("SELECT coc_tag FROM links2 WHERE telegram_id=?", (str(telegram_id),))
     rows = cur.fetchall()
     conn.close()
     return [r[0] for r in rows] if rows else []
@@ -190,7 +195,7 @@ def db_delete_link(telegram_id, coc_tag):
     import sqlite3
     conn = sqlite3.connect(DB_PATH)
     conn.execute(
-        "DELETE FROM links WHERE telegram_id=? AND coc_tag=?",
+        "DELETE FROM links2 WHERE telegram_id=? AND coc_tag=?",
         (str(telegram_id), coc_tag),
     )
     conn.commit()
@@ -199,7 +204,7 @@ def db_delete_link(telegram_id, coc_tag):
 def db_get_all_links():
     import sqlite3
     conn = sqlite3.connect(DB_PATH)
-    cur = conn.execute("SELECT telegram_id, coc_tag FROM links")
+    cur = conn.execute("SELECT telegram_id, coc_tag FROM links2")
     rows = cur.fetchall()
     conn.close()
     return rows
@@ -1472,7 +1477,7 @@ def background_notifier():
                         # Broadcast to all linked users
                         import sqlite3
                         conn = sqlite3.connect(DB_PATH)
-                        cur = conn.execute("SELECT DISTINCT telegram_id FROM links")
+                        cur = conn.execute("SELECT DISTINCT telegram_id FROM links2")
                         rows = cur.fetchall()
                         conn.close()
 
@@ -1538,7 +1543,7 @@ def background_notifier():
                 # broadcast to all linked users
                 import sqlite3
                 conn = sqlite3.connect(DB_PATH)
-                cur = conn.execute("SELECT DISTINCT telegram_id FROM links")
+                cur = conn.execute("SELECT DISTINCT telegram_id FROM links2")
                 rows = cur.fetchall()
                 conn.close()
 
