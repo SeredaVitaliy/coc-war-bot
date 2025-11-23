@@ -24,6 +24,11 @@ COC_API_TOKEN = _env("COC_API_TOKEN")
 CLAN_TAG = _env("CLAN_TAG")
 GROUP_CHAT_ID = _env("GROUP_CHAT_ID")
 
+# --- GROUP THREAD ID SUPPORT ---
+GROUP_THREAD_ID = _env("GROUP_THREAD_ID")
+if GROUP_THREAD_ID:
+    GROUP_THREAD_ID = int(GROUP_THREAD_ID)
+
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("ERROR: TELEGRAM_BOT_TOKEN не найден в .env")
 
@@ -243,13 +248,16 @@ def send_keyboard(chat_id):
         "resize_keyboard": True
     }
     try:
+        data = {
+            "chat_id": chat_id,
+            "text": "Главное меню:",
+            "reply_markup": json.dumps(keyboard)
+        }
+        if GROUP_THREAD_ID and GROUP_CHAT_ID and chat_id == GROUP_CHAT_ID:
+            data["message_thread_id"] = GROUP_THREAD_ID
         resp = requests.post(
             BASE_TELEGRAM_URL + "/sendMessage",
-            data={
-                "chat_id": chat_id,
-                "text": "Главное меню:",
-                "reply_markup": json.dumps(keyboard)
-            },
+            data=data,
             timeout=5,
         )
         message_id = _extract_message_id(resp)
@@ -275,6 +283,8 @@ def send_main_menu_inline(chat_id, message_id=None):
         "text": "Главное меню:",
         "reply_markup": json.dumps(keyboard),
     }
+    if GROUP_THREAD_ID and GROUP_CHAT_ID and chat_id == GROUP_CHAT_ID:
+        payload["message_thread_id"] = GROUP_THREAD_ID
     try:
         if message_id:
             payload["message_id"] = message_id
@@ -311,6 +321,8 @@ def send_war_menu_inline(chat_id, message_id=None):
         "text": "Раздел: Война",
         "reply_markup": json.dumps(keyboard),
     }
+    if GROUP_THREAD_ID and GROUP_CHAT_ID and chat_id == GROUP_CHAT_ID:
+        payload["message_thread_id"] = GROUP_THREAD_ID
     try:
         if message_id:
             payload["message_id"] = message_id
@@ -348,6 +360,8 @@ def send_lwk_menu_inline(chat_id, message_id=None):
         "text": "Раздел: Лига Воин Кланов (ЛВК)",
         "reply_markup": json.dumps(keyboard),
     }
+    if GROUP_THREAD_ID and GROUP_CHAT_ID and chat_id == GROUP_CHAT_ID:
+        payload["message_thread_id"] = GROUP_THREAD_ID
     try:
         if message_id:
             payload["message_id"] = message_id
@@ -384,6 +398,8 @@ def send_accounts_menu_inline(chat_id, message_id=None):
         "text": "Раздел: Аккаунты",
         "reply_markup": json.dumps(keyboard),
     }
+    if GROUP_THREAD_ID and GROUP_CHAT_ID and chat_id == GROUP_CHAT_ID:
+        payload["message_thread_id"] = GROUP_THREAD_ID
     try:
         if message_id:
             payload["message_id"] = message_id
@@ -420,6 +436,8 @@ def send_subscriptions_menu_inline(chat_id, message_id=None):
         "text": "Раздел: Подписки",
         "reply_markup": json.dumps(keyboard),
     }
+    if GROUP_THREAD_ID and GROUP_CHAT_ID and chat_id == GROUP_CHAT_ID:
+        payload["message_thread_id"] = GROUP_THREAD_ID
     try:
         if message_id:
             payload["message_id"] = message_id
@@ -453,6 +471,8 @@ def send_check_menu_inline(chat_id, message_id=None):
         "text": "Раздел: Проверка",
         "reply_markup": json.dumps(keyboard),
     }
+    if GROUP_THREAD_ID and GROUP_CHAT_ID and chat_id == GROUP_CHAT_ID:
+        payload["message_thread_id"] = GROUP_THREAD_ID
     try:
         if message_id:
             payload["message_id"] = message_id
@@ -488,13 +508,16 @@ def send_war_menu(chat_id):
         "resize_keyboard": True
     }
     try:
+        data = {
+            "chat_id": chat_id,
+            "text": "Раздел: Война",
+            "reply_markup": json.dumps(keyboard)
+        }
+        if GROUP_THREAD_ID and GROUP_CHAT_ID and chat_id == GROUP_CHAT_ID:
+            data["message_thread_id"] = GROUP_THREAD_ID
         resp = requests.post(
             BASE_TELEGRAM_URL + "/sendMessage",
-            data={
-                "chat_id": chat_id,
-                "text": "Раздел: Война",
-                "reply_markup": json.dumps(keyboard)
-            },
+            data=data,
             timeout=5,
         )
         message_id = _extract_message_id(resp)
@@ -515,13 +538,16 @@ def send_accounts_menu(chat_id):
         "resize_keyboard": True
     }
     try:
+        data = {
+            "chat_id": chat_id,
+            "text": "Раздел: Аккаунты",
+            "reply_markup": json.dumps(keyboard)
+        }
+        if GROUP_THREAD_ID and GROUP_CHAT_ID and chat_id == GROUP_CHAT_ID:
+            data["message_thread_id"] = GROUP_THREAD_ID
         resp = requests.post(
             BASE_TELEGRAM_URL + "/sendMessage",
-            data={
-                "chat_id": chat_id,
-                "text": "Раздел: Аккаунты",
-                "reply_markup": json.dumps(keyboard)
-            },
+            data=data,
             timeout=5,
         )
         message_id = _extract_message_id(resp)
@@ -545,13 +571,16 @@ def send_lwk_menu(chat_id):
         "resize_keyboard": True
     }
     try:
+        data = {
+            "chat_id": chat_id,
+            "text": "Раздел: Лига Воин Кланов (ЛВК)",
+            "reply_markup": json.dumps(keyboard)
+        }
+        if GROUP_THREAD_ID and GROUP_CHAT_ID and chat_id == GROUP_CHAT_ID:
+            data["message_thread_id"] = GROUP_THREAD_ID
         resp = requests.post(
             BASE_TELEGRAM_URL + "/sendMessage",
-            data={
-                "chat_id": chat_id,
-                "text": "Раздел: Лига Воин Кланов (ЛВК)",
-                "reply_markup": json.dumps(keyboard)
-            },
+            data=data,
             timeout=5,
         )
         message_id = _extract_message_id(resp)
@@ -572,13 +601,16 @@ def send_subscriptions_menu(chat_id):
         "resize_keyboard": True
     }
     try:
+        data = {
+            "chat_id": chat_id,
+            "text": "Раздел: Подписки",
+            "reply_markup": json.dumps(keyboard)
+        }
+        if GROUP_THREAD_ID and GROUP_CHAT_ID and chat_id == GROUP_CHAT_ID:
+            data["message_thread_id"] = GROUP_THREAD_ID
         resp = requests.post(
             BASE_TELEGRAM_URL + "/sendMessage",
-            data={
-                "chat_id": chat_id,
-                "text": "Раздел: Подписки",
-                "reply_markup": json.dumps(keyboard)
-            },
+            data=data,
             timeout=5,
         )
         message_id = _extract_message_id(resp)
@@ -595,13 +627,16 @@ def send_check_menu(chat_id):
         "resize_keyboard": True
     }
     try:
+        data = {
+            "chat_id": chat_id,
+            "text": "Раздел: Проверка",
+            "reply_markup": json.dumps(keyboard)
+        }
+        if GROUP_THREAD_ID and GROUP_CHAT_ID and chat_id == GROUP_CHAT_ID:
+            data["message_thread_id"] = GROUP_THREAD_ID
         resp = requests.post(
             BASE_TELEGRAM_URL + "/sendMessage",
-            data={
-                "chat_id": chat_id,
-                "text": "Раздел: Проверка",
-                "reply_markup": json.dumps(keyboard)
-            },
+            data=data,
             timeout=5,
         )
         message_id = _extract_message_id(resp)
@@ -616,6 +651,10 @@ def send_message(chat_id, text, *, parse_mode="Markdown", auto_delete=True, repl
             payload["parse_mode"] = parse_mode
         if reply_markup:
             payload["reply_markup"] = reply_markup if isinstance(reply_markup, str) else json.dumps(reply_markup)
+        # --- GROUP THREAD ID SUPPORT ---
+        # Добавляем message_thread_id ТОЛЬКО если отправляем в нужный групповой чат
+        if GROUP_THREAD_ID and GROUP_CHAT_ID and chat_id == GROUP_CHAT_ID:
+            payload["message_thread_id"] = GROUP_THREAD_ID
 
         resp = requests.post(
             BASE_TELEGRAM_URL + "/sendMessage",
@@ -830,7 +869,8 @@ def cmd_missed(chat_id):
     msg = "❗ **Не сделали атаку:**\n\n"
     missed = []
     for m in w["clan"]["members"]:
-        if not m.get("attacks"):
+        att_list = m.get("attacks", [])
+        if not isinstance(att_list, list) or len(att_list) == 0:
             missed.append(f"{m['name']} — {m['tag']}")
     if not missed:
         send_message(chat_id, "🎉 Все сделали хотя бы одну атаку!")
@@ -882,11 +922,12 @@ def cmd_myattacks(chat_id, user_id):
             continue
         found_any = True
         pname = me["name"]
-        if not me.get("attacks"):
+        att_list = me.get("attacks", [])
+        if not isinstance(att_list, list) or len(att_list) == 0:
             msg += f"• {pname}: нет атак\n"
         else:
             msg += f"• {pname}:\n"
-            for atk in me["attacks"]:
+            for atk in att_list:
                 msg += f"    ⭐ {atk['stars']} — {atk['destructionPercentage']}%\n"
     if not found_any:
         msg = "Ни один из ваших аккаунтов не участвует в этой войне."
@@ -1022,7 +1063,7 @@ def cmd_check_links(chat_id):
         tail = " и состоят в группе" if GROUP_CHAT_ID else ""
         msg += f"\nВсе игроки привязали теги{tail}."
 
-    send_message(chat_id, msg, auto_delete=False)
+    send_message(chat_id, msg)
 
 # -------------------- ОБРАБОТКА --------------------
 
@@ -1056,7 +1097,8 @@ def cmd_lwk_missed(chat_id):
     msg = "❗ Не сделали атаку в ЛВК:\n\n"
     missed = []
     for m in w["clan"]["members"]:
-        if not m.get("attacks"):
+        att_list = m.get("attacks", [])
+        if not isinstance(att_list, list) or len(att_list) == 0:
             missed.append(f"{m['name']} — {m['tag']}")
     if not missed:
         send_message(chat_id, "🎉 Все сделали атаки в ЛВК!")
@@ -1080,11 +1122,12 @@ def cmd_lwk_myattacks(chat_id, user_id):
             continue
         found = True
         pname = me["name"]
-        if not me.get("attacks"):
+        att_list = me.get("attacks", [])
+        if not isinstance(att_list, list) or len(att_list) == 0:
             msg += f"• {pname}: нет атак\n"
         else:
             msg += f"• {pname}:\n"
-            for atk in me["attacks"]:
+            for atk in att_list:
                 msg += f"    ⭐ {atk['stars']} — {atk['destructionPercentage']}%\n"
     if not found:
         msg = "Ни один из ваших аккаунтов не участвует в текущей ЛВК-войне."
@@ -1258,6 +1301,17 @@ def handle_callback(cq):
 
 
 def handle_update(update):
+    # --- LOG THREAD ID ---
+    chat = update.get("message") or update.get("edited_message")
+    if chat:
+        chat_id = chat["chat"]["id"]
+        message_id = chat.get("message_id")
+        thread_id = chat.get("message_thread_id")
+        text = chat.get("text", "")
+        print(f"[UPDATE] chat={chat_id} thread={thread_id} text={text}")
+        # --- GROUP THREAD ID FILTER ---
+        if GROUP_THREAD_ID and thread_id != GROUP_THREAD_ID:
+            return
     # Обработка callback-кнопок
     cq = update.get("callback_query")
     if cq:
@@ -1398,10 +1452,15 @@ def background_notifier():
                         # Build missed list
                         missed = []
                         for m in w["clan"]["members"]:
-                            if not m.get("attacks"):
+                            att_list = m.get("attacks", [])
+                            if not isinstance(att_list, list) or len(att_list) == 0:
                                 missed.append(f"{m['name']} — {m['tag']}")
 
-                        message = "⏳ *До конца ЛВК осталось 3 часа!*\n\n"
+                        message = (
+                            "⏳ *До конца ЛВК осталось 3 часа!*\n"
+                            "--------------------------------\n"
+                            "🔥 *Лига Воин Кланов*\n\n"
+                        )
                         if missed:
                             message += "❗ Не били:\n" + "\n".join(missed)
                         else:
@@ -1416,11 +1475,11 @@ def background_notifier():
 
                         for row in rows:
                             chat_id = row[0]
-                            send_message(chat_id, message, auto_delete=False)
+                            send_message(chat_id, message)
 
                         # Send to group chat if configured
                         if GROUP_CHAT_ID:
-                            send_message(GROUP_CHAT_ID, message, auto_delete=False)
+                            send_message(GROUP_CHAT_ID, message)
 
                     # Reset flag for next war
                     if diff_hours > 3:
@@ -1454,19 +1513,24 @@ def background_notifier():
 
                 missed = []
                 for m in clan.get("members", []):
-                    if not m.get("attacks"):
+                    att_list = m.get("attacks", [])
+                    if not isinstance(att_list, list) or len(att_list) == 0:
                         missed.append(f"{m['name']} — {m['tag']}")
 
                 msg = (
-                    "🔔 *ЛВК-война завершилась!*\n\n"
-                    f"{clan_name} — {opp_name}\n"
-                    f"⭐ {clan_stars} — {opp_stars}\n"
-                    f"⚔ {clan_atk} атак — {opp_atk} атак\n\n"
-                    f"🏁 Итог: *{result}*\n\n"
+                    "🏁 *ЛВК-война завершилась!*\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    f"🛡 *{clan_name}* — ⚔ *{opp_name}*\n\n"
+                    f"⭐ *Звёзды:* {clan_stars} — {opp_stars}\n"
+                    f"⚔ *Атаки:* {clan_atk} — {opp_atk}\n"
+                    f"💥 *Разрушение:* {clan.get('destructionPercentage',0)}% — {opp.get('destructionPercentage',0)}%\n\n"
+                    f"🏆 *Результат:* {result}\n\n"
                 )
 
                 if missed:
-                    msg += "❗ *Не атаковали:*\n" + "\n".join(missed)
+                    msg += "❗ *Не атаковали в ЛВК:*\n" + "\n".join(f"• {m}" for m in missed)
+                else:
+                    msg += "🎉 Все участники сделали атаки!"
 
                 # broadcast to all linked users
                 import sqlite3
@@ -1476,10 +1540,10 @@ def background_notifier():
                 conn.close()
 
                 for row in rows:
-                    send_message(row[0], msg, auto_delete=False)
+                    send_message(row[0], msg)
 
                 if GROUP_CHAT_ID:
-                    send_message(GROUP_CHAT_ID, msg, auto_delete=False)
+                    send_message(GROUP_CHAT_ID, msg)
 
             # Reset LWK war-end flag
             if w and w.get("state") == "preparation":
@@ -1495,16 +1559,21 @@ def background_notifier():
                     diff_hours2 = (end2 - now2).total_seconds() / 3600
 
                     # notify once
-                    if diff_hours2 <= 3 and diff_hours2 > 0 and not notified_war:
+                    if 0 < diff_hours2 <= 3 and not notified_war:
                         notified_war = True
 
                         # Build missed list
                         missed = []
                         for m in w2["clan"]["members"]:
-                            if not m.get("attacks"):
+                            att_list = m.get("attacks", [])
+                            if not isinstance(att_list, list) or len(att_list) == 0:
                                 missed.append(f"{m['name']} — {m['tag']}")
 
-                        message = "⏳ *До конца обычной войны осталось 3 часа!*\n\n"
+                        message = (
+                            "⏳ *До конца обычной войны осталось 3 часа!*\n"
+                            "---------------------------------------------\n"
+                            "⚔ *Clan War*\n\n"
+                        )
                         if missed:
                             message += "❗ Не били:\n" + "\n".join(missed)
                         else:
@@ -1514,11 +1583,11 @@ def background_notifier():
                         subs = db_get_subs()
                         for uid, st in subs:
                             if st == "war_3h":
-                                send_message(uid, message, auto_delete=False)
+                                send_message(uid, message)
 
                         # Send to group chat if configured
                         if GROUP_CHAT_ID:
-                            send_message(GROUP_CHAT_ID, message, auto_delete=False)
+                            send_message(GROUP_CHAT_ID, message)
 
                     # reset for next war
                     if diff_hours2 > 3:
@@ -1552,29 +1621,33 @@ def background_notifier():
 
                 missed = []
                 for m in clan.get("members", []):
-                    if not m.get("attacks"):
+                    att_list = m.get("attacks", [])
+                    if not isinstance(att_list, list) or len(att_list) == 0:
                         missed.append(f"{m['name']} — {m['tag']}")
 
                 msg = (
-                    "🔔 *Обычная война завершилась!*\n\n"
-                    f"{clan_name} — {opp_name}\n"
-                    f"⭐ {clan_stars} — {opp_stars}\n"
-                    f"⚔ {clan_atk} атак — {opp_atk} атак\n\n"
-                    f"🏁 Итог: *{result}*\n\n"
+                    "🏁 *Обычная война завершилась!*\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    f"🛡 *{clan_name}* — ⚔ *{opp_name}*\n\n"
+                    f"⭐ *Звёзды:* {clan_stars} — {opp_stars}\n"
+                    f"⚔ *Атаки:* {clan_atk} — {opp_atk}\n\n"
+                    f"🏆 *Результат:* {result}\n\n"
                 )
 
                 if missed:
-                    msg += "❗ *Не атаковали:*\n" + "\n".join(missed)
+                    msg += "❗ *Не атаковали:*\n" + "\n".join(f"• {m}" for m in missed)
+                else:
+                    msg += "🎉 Все игроки выполнили атаки!"
 
                 # Send to group
                 if GROUP_CHAT_ID:
-                    send_message(GROUP_CHAT_ID, msg, auto_delete=False)
+                    send_message(GROUP_CHAT_ID, msg)
 
                 # Send to all subscribers
                 subs = db_get_subs()
                 for uid, st in subs:
                     if st in ("war_start", "war_3h"):
-                        send_message(uid, msg, auto_delete=False)
+                        send_message(uid, msg)
 
             # Reset war-end notifier for next war
             if w2 and w2.get("state") == "preparation":
@@ -1592,9 +1665,31 @@ def background_notifier():
                         subs = db_get_subs()
                         for uid, st in subs:
                             if st == "war_start":
-                                send_message(uid, "🔥 Война началась! Вперёд в бой!", auto_delete=False)
+                                send_message(uid,
+                                    f"🔥 *Война началась!*\n"
+                                    f"=======================\n"
+                                    f"🛡 *Наш клан:* {w2.get('clan',{}).get('name','Наш клан')}\n"
+                                    f"⚔ *Противник:* {w2.get('opponent',{}).get('name','Противник')}\n"
+                                    f"📏 *Формат войны:* {w2.get('teamSize',0)}×{w2.get('teamSize',0)}\n"
+                                    f"⏳ *До завершения:* {format_diff(parse_time(w2.get('endTime')))}\n\n"
+                                    f"📌 *Правила Legion:*\n"
+                                    f"• 🪞 Первая атака — *зеркало*\n"
+                                    f"• ⏱ Вторая атака — *в последние 3 часа*\n"
+                                    f"• 🗣 Если не успеваешь — предупреди или поменяйся\n"
+                                )
                         if GROUP_CHAT_ID:
-                            send_message(GROUP_CHAT_ID, "🔥 Война началась! Вперёд в бой!", auto_delete=False)
+                            send_message(GROUP_CHAT_ID,
+                                f"🔥 *Война началась!*\n"
+                                f"=======================\n"
+                                f"🛡 *Наш клан:* {w2.get('clan',{}).get('name','Наш клан')}\n"
+                                f"⚔ *Противник:* {w2.get('opponent',{}).get('name','Противник')}\n"
+                                f"📏 *Формат войны:* {w2.get('teamSize',0)}×{w2.get('teamSize',0)}\n"
+                                f"⏳ *До завершения:* {format_diff(parse_time(w2.get('endTime')))}\n\n"
+                                f"📌 *Правила Legion:*\n"
+                                f"• 🪞 Первая атака — *зеркало*\n"
+                                f"• ⏱ Вторая атака — *в последние 3 часа*\n"
+                                f"• 🗣 Если не успеваешь — предупреди или поменяйся\n"
+                            )
             # Reset for next war
             if w2 and w2.get("state") == "warEnded":
                 notified_war_start = False
