@@ -138,11 +138,37 @@ def auto_cleanup_worker():
 
 # -------------------- ЛОКАЛЬНАЯ БД (в одном файле) --------------------
 
-DB_PATH = "links.db"
+DB_PATH = BASE_DIR / "links.db"
+
+def _db_connect():
+    """Возвращает подключение к SQLite в папке с ботом."""
+    import sqlite3
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    return sqlite3.connect(DB_PATH)
+
+
+def _migrate_legacy_links(conn):
+    """Переносит данные из старой таблицы links (одна привязка на пользователя) в новую links2."""
+    cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='links'")
+    if not cur.fetchone():
+        return
+
+    rows = conn.execute("SELECT telegram_id, coc_tag FROM links").fetchall()
+    for telegram_id, coc_tag in rows:
+        norm = normalize_tag(coc_tag)
+        if not norm:
+            continue
+        conn.execute(
+            "INSERT OR IGNORE INTO links2 (telegram_id, coc_tag) VALUES (?, ?)",
+            (str(telegram_id), norm),
+        )
+
+    # Старую таблицу убираем, чтобы не путаться в схемах
+    conn.execute("DROP TABLE IF EXISTS links")
 
 def db_init():
     import sqlite3
-    conn = sqlite3.connect(DB_PATH)
+    conn = _db_connect()
     conn.execute("""
         CREATE TABLE IF NOT EXISTS links2 (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -150,6 +176,8 @@ def db_init():
             coc_tag TEXT NOT NULL
         )
     """)
+    # Один и тот же тег не пишем по два раза для одного пользователя
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_links2_user_tag ON links2 (telegram_id, coc_tag)")
     conn.execute("""
         CREATE TABLE IF NOT EXISTS subs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -157,15 +185,16 @@ def db_init():
             sub_type TEXT NOT NULL
         )
     """)
+    _migrate_legacy_links(conn)
     conn.commit()
     conn.close()
 
 def db_save_link(telegram_id, coc_tag):
     import sqlite3
-    conn = sqlite3.connect(DB_PATH)
+    conn = _db_connect()
     try:
         conn.execute("""
-            INSERT INTO links2 (telegram_id, coc_tag)
+            INSERT OR IGNORE INTO links2 (telegram_id, coc_tag)
             VALUES (?, ?)
         """, (str(telegram_id), coc_tag))
         conn.commit()
@@ -177,7 +206,7 @@ def db_save_link(telegram_id, coc_tag):
 
 def db_get_link(telegram_id):
     import sqlite3
-    conn = sqlite3.connect(DB_PATH)
+    conn = _db_connect()
     cur = conn.execute("SELECT coc_tag FROM links2 WHERE telegram_id=?", (str(telegram_id),))
     rows = cur.fetchall()
     conn.close()
@@ -185,7 +214,7 @@ def db_get_link(telegram_id):
 
 def db_get_all_links_for_user(telegram_id):
     import sqlite3
-    conn = sqlite3.connect(DB_PATH)
+    conn = _db_connect()
     cur = conn.execute("SELECT coc_tag FROM links2 WHERE telegram_id=?", (str(telegram_id),))
     rows = cur.fetchall()
     conn.close()
@@ -193,7 +222,7 @@ def db_get_all_links_for_user(telegram_id):
 
 def db_delete_link(telegram_id, coc_tag):
     import sqlite3
-    conn = sqlite3.connect(DB_PATH)
+    conn = _db_connect()
     conn.execute(
         "DELETE FROM links2 WHERE telegram_id=? AND coc_tag=?",
         (str(telegram_id), coc_tag),
@@ -203,7 +232,7 @@ def db_delete_link(telegram_id, coc_tag):
 
 def db_get_all_links():
     import sqlite3
-    conn = sqlite3.connect(DB_PATH)
+    conn = _db_connect()
     cur = conn.execute("SELECT telegram_id, coc_tag FROM links2")
     rows = cur.fetchall()
     conn.close()
@@ -212,14 +241,14 @@ def db_get_all_links():
 # -------------------- SUBSCRIPTION HELPERS --------------------
 def db_add_sub(telegram_id, sub_type):
     import sqlite3
-    conn = sqlite3.connect(DB_PATH)
+    conn = _db_connect()
     conn.execute("INSERT INTO subs (telegram_id, sub_type) VALUES (?, ?)", (str(telegram_id), sub_type))
     conn.commit()
     conn.close()
 
 def db_get_subs():
     import sqlite3
-    conn = sqlite3.connect(DB_PATH)
+    conn = _db_connect()
     cur = conn.execute("SELECT telegram_id, sub_type FROM subs")
     rows = cur.fetchall()
     conn.close()
@@ -228,7 +257,7 @@ def db_get_subs():
 # -------------------- SUBSCRIPTION CLEAR HELPER --------------------
 def db_clear_subs_for_user(telegram_id):
     import sqlite3
-    conn = sqlite3.connect(DB_PATH)
+    conn = _db_connect()
     conn.execute("DELETE FROM subs WHERE telegram_id=?", (str(telegram_id),))
     conn.commit()
     conn.close()
@@ -1475,8 +1504,7 @@ def background_notifier():
                             message += "🎉 Все уже атаковали!"
 
                         # Broadcast to all linked users
-                        import sqlite3
-                        conn = sqlite3.connect(DB_PATH)
+                        conn = _db_connect()
                         cur = conn.execute("SELECT DISTINCT telegram_id FROM links2")
                         rows = cur.fetchall()
                         conn.close()
@@ -1541,8 +1569,7 @@ def background_notifier():
                     msg += "🎉 Все участники сделали атаки!"
 
                 # broadcast to all linked users
-                import sqlite3
-                conn = sqlite3.connect(DB_PATH)
+                conn = _db_connect()
                 cur = conn.execute("SELECT DISTINCT telegram_id FROM links2")
                 rows = cur.fetchall()
                 conn.close()
