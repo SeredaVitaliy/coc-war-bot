@@ -690,16 +690,41 @@ def send_message(chat_id, text, *, parse_mode="Markdown", auto_delete=True, repl
         if GROUP_CHAT_ID and GROUP_THREAD_ID and chat_id == GROUP_CHAT_ID:
             payload["message_thread_id"] = GROUP_THREAD_ID
 
-        resp = requests.post(
-            BASE_TELEGRAM_URL + "/sendMessage",
-            data=payload,
-            timeout=5,
-        )
-        message_id = _extract_message_id(resp)
-        if auto_delete:
+        resp = requests.post(BASE_TELEGRAM_URL + "/sendMessage", data=payload, timeout=5)
+
+        # Telegram часто ругается на Markdown, если в тексте попадаются спецсимволы из ников.
+        # Если пришла ошибка парсинга — повторяем отправку без parse_mode, чтобы не молчать.
+        message_id = None
+        resp_json = None
+        try:
+            resp_json = resp.json()
+            message_id = resp_json.get("result", {}).get("message_id")
+        except Exception:
+            pass
+
+        need_plain_retry = False
+        if isinstance(resp_json, dict) and not resp_json.get("ok") and parse_mode:
+            desc = str(resp_json.get("description", "")).lower()
+            if "parse" in desc or "markdown" in desc:
+                need_plain_retry = True
+
+        if need_plain_retry:
+            payload.pop("parse_mode", None)
+            resp = requests.post(BASE_TELEGRAM_URL + "/sendMessage", data=payload, timeout=5)
+            try:
+                resp_json = resp.json()
+                message_id = resp_json.get("result", {}).get("message_id")
+            except Exception:
+                message_id = _extract_message_id(resp)
+
+        if not message_id:
+            message_id = _extract_message_id(resp)
+
+        if auto_delete and message_id:
             _track_message(chat_id, message_id, "reply")
         return message_id
-    except Exception:
+    except Exception as e:
+        print("send_message error:", e)
         return None
 
 def get_updates(offset=None):
