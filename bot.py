@@ -283,7 +283,7 @@ def send_main_menu_inline(chat_id, message_id=None):
         "text": "Главное меню:",
         "reply_markup": json.dumps(keyboard),
     }
-    if GROUP_THREAD_ID and GROUP_CHAT_ID and chat_id == GROUP_CHAT_ID:
+    if GROUP_CHAT_ID and GROUP_THREAD_ID and chat_id == GROUP_CHAT_ID:
         payload["message_thread_id"] = GROUP_THREAD_ID
     try:
         if message_id:
@@ -321,7 +321,7 @@ def send_war_menu_inline(chat_id, message_id=None):
         "text": "Раздел: Война",
         "reply_markup": json.dumps(keyboard),
     }
-    if GROUP_THREAD_ID and GROUP_CHAT_ID and chat_id == GROUP_CHAT_ID:
+    if GROUP_CHAT_ID and GROUP_THREAD_ID and chat_id == GROUP_CHAT_ID:
         payload["message_thread_id"] = GROUP_THREAD_ID
     try:
         if message_id:
@@ -360,7 +360,7 @@ def send_lwk_menu_inline(chat_id, message_id=None):
         "text": "Раздел: Лига Воин Кланов (ЛВК)",
         "reply_markup": json.dumps(keyboard),
     }
-    if GROUP_THREAD_ID and GROUP_CHAT_ID and chat_id == GROUP_CHAT_ID:
+    if GROUP_CHAT_ID and GROUP_THREAD_ID and chat_id == GROUP_CHAT_ID:
         payload["message_thread_id"] = GROUP_THREAD_ID
     try:
         if message_id:
@@ -398,7 +398,7 @@ def send_accounts_menu_inline(chat_id, message_id=None):
         "text": "Раздел: Аккаунты",
         "reply_markup": json.dumps(keyboard),
     }
-    if GROUP_THREAD_ID and GROUP_CHAT_ID and chat_id == GROUP_CHAT_ID:
+    if GROUP_CHAT_ID and GROUP_THREAD_ID and chat_id == GROUP_CHAT_ID:
         payload["message_thread_id"] = GROUP_THREAD_ID
     try:
         if message_id:
@@ -436,7 +436,7 @@ def send_subscriptions_menu_inline(chat_id, message_id=None):
         "text": "Раздел: Подписки",
         "reply_markup": json.dumps(keyboard),
     }
-    if GROUP_THREAD_ID and GROUP_CHAT_ID and chat_id == GROUP_CHAT_ID:
+    if GROUP_CHAT_ID and GROUP_THREAD_ID and chat_id == GROUP_CHAT_ID:
         payload["message_thread_id"] = GROUP_THREAD_ID
     try:
         if message_id:
@@ -471,7 +471,7 @@ def send_check_menu_inline(chat_id, message_id=None):
         "text": "Раздел: Проверка",
         "reply_markup": json.dumps(keyboard),
     }
-    if GROUP_THREAD_ID and GROUP_CHAT_ID and chat_id == GROUP_CHAT_ID:
+    if GROUP_CHAT_ID and GROUP_THREAD_ID and chat_id == GROUP_CHAT_ID:
         payload["message_thread_id"] = GROUP_THREAD_ID
     try:
         if message_id:
@@ -513,7 +513,7 @@ def send_war_menu(chat_id):
             "text": "Раздел: Война",
             "reply_markup": json.dumps(keyboard)
         }
-        if GROUP_THREAD_ID and GROUP_CHAT_ID and chat_id == GROUP_CHAT_ID:
+        if GROUP_CHAT_ID and GROUP_THREAD_ID and chat_id == GROUP_CHAT_ID:
             data["message_thread_id"] = GROUP_THREAD_ID
         resp = requests.post(
             BASE_TELEGRAM_URL + "/sendMessage",
@@ -543,7 +543,7 @@ def send_accounts_menu(chat_id):
             "text": "Раздел: Аккаунты",
             "reply_markup": json.dumps(keyboard)
         }
-        if GROUP_THREAD_ID and GROUP_CHAT_ID and chat_id == GROUP_CHAT_ID:
+        if GROUP_CHAT_ID and GROUP_THREAD_ID and chat_id == GROUP_CHAT_ID:
             data["message_thread_id"] = GROUP_THREAD_ID
         resp = requests.post(
             BASE_TELEGRAM_URL + "/sendMessage",
@@ -576,7 +576,7 @@ def send_lwk_menu(chat_id):
             "text": "Раздел: Лига Воин Кланов (ЛВК)",
             "reply_markup": json.dumps(keyboard)
         }
-        if GROUP_THREAD_ID and GROUP_CHAT_ID and chat_id == GROUP_CHAT_ID:
+        if GROUP_CHAT_ID and GROUP_THREAD_ID and chat_id == GROUP_CHAT_ID:
             data["message_thread_id"] = GROUP_THREAD_ID
         resp = requests.post(
             BASE_TELEGRAM_URL + "/sendMessage",
@@ -606,7 +606,7 @@ def send_subscriptions_menu(chat_id):
             "text": "Раздел: Подписки",
             "reply_markup": json.dumps(keyboard)
         }
-        if GROUP_THREAD_ID and GROUP_CHAT_ID and chat_id == GROUP_CHAT_ID:
+        if GROUP_CHAT_ID and GROUP_THREAD_ID and chat_id == GROUP_CHAT_ID:
             data["message_thread_id"] = GROUP_THREAD_ID
         resp = requests.post(
             BASE_TELEGRAM_URL + "/sendMessage",
@@ -632,7 +632,7 @@ def send_check_menu(chat_id):
             "text": "Раздел: Проверка",
             "reply_markup": json.dumps(keyboard)
         }
-        if GROUP_THREAD_ID and GROUP_CHAT_ID and chat_id == GROUP_CHAT_ID:
+        if GROUP_CHAT_ID and GROUP_THREAD_ID and chat_id == GROUP_CHAT_ID:
             data["message_thread_id"] = GROUP_THREAD_ID
         resp = requests.post(
             BASE_TELEGRAM_URL + "/sendMessage",
@@ -652,8 +652,8 @@ def send_message(chat_id, text, *, parse_mode="Markdown", auto_delete=True, repl
         if reply_markup:
             payload["reply_markup"] = reply_markup if isinstance(reply_markup, str) else json.dumps(reply_markup)
         # --- GROUP THREAD ID SUPPORT ---
-        # Добавляем message_thread_id ТОЛЬКО если отправляем в нужный групповой чат
-        if GROUP_THREAD_ID and GROUP_CHAT_ID and chat_id == GROUP_CHAT_ID:
+        # Route all bot replies into the Centurion thread
+        if GROUP_CHAT_ID and GROUP_THREAD_ID and chat_id == GROUP_CHAT_ID:
             payload["message_thread_id"] = GROUP_THREAD_ID
 
         resp = requests.post(
@@ -1310,8 +1310,10 @@ def handle_update(update):
         text = chat.get("text", "")
         print(f"[UPDATE] chat={chat_id} thread={thread_id} text={text}")
         # --- GROUP THREAD ID FILTER ---
-        if GROUP_THREAD_ID and thread_id != GROUP_THREAD_ID:
-            return
+        # Accept commands from Centurion thread only
+        if GROUP_CHAT_ID and GROUP_THREAD_ID and chat_id == GROUP_CHAT_ID:
+            if thread_id != GROUP_THREAD_ID:
+                return
     # Обработка callback-кнопок
     cq = update.get("callback_query")
     if cq:
