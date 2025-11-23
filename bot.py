@@ -1314,12 +1314,13 @@ def handle_update(update):
         if GROUP_CHAT_ID and GROUP_THREAD_ID and chat_id == GROUP_CHAT_ID:
             if thread_id != GROUP_THREAD_ID:
                 return
+        msg = chat
     # Обработка callback-кнопок
     cq = update.get("callback_query")
     if cq:
         handle_callback(cq)
         return
-    msg = update.get("message") or update.get("edited_message")
+    # Обработка callback-кнопок
     if not msg:
         return
     # --- FILTER GROUP CHAT NOISE ---
