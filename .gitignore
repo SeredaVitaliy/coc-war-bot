@@ -1,1 +1,15 @@
+# секреты
 .env
+
+# локальная база привязок (реальные Telegram ID)
+*.db
+*.db-journal
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# системное
+.DS_Store
